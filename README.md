@@ -1,7 +1,14 @@
-# Tauri + React + Typescript
+# Pasta
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Copy on one machine, paste on another. Pasta syncs copied text between your macOS,
+Windows and KDE Plasma machines over [Tailscale](https://tailscale.com), straight into
+each OS's own clipboard history, and gives macOS a Paste-style clipboard panel (⇧⌘V).
 
-## Recommended IDE Setup
+> Status: early development (milestone M0). Not ready for daily use.
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Decision records](docs/adr/README.md)
+- [Development setup](docs/development.md)
+- Roadmap: issue #65
+
+Built with Tauri 2, Rust and React + TypeScript.

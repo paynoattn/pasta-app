@@ -1,0 +1,6 @@
+dist
+target
+.claude
+src-tauri/gen
+pnpm-lock.yaml
+Cargo.lock

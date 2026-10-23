@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "pasta-app",
+  "productName": "Pasta",
   "version": "0.1.0",
   "identifier": "com.cpawlukiewicz.pasta-app",
   "build": {
@@ -12,13 +12,14 @@
   "app": {
     "windows": [
       {
-        "title": "pasta-app",
-        "width": 800,
-        "height": 600
+        "label": "main",
+        "title": "Pasta",
+        "width": 1000,
+        "height": 680
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {

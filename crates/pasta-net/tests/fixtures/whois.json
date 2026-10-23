@@ -1,0 +1,15 @@
+{
+  "Node": {
+    "ID": 123456789,
+    "StableID": "nMac0000CNTRL",
+    "Name": "macbook-pro.tail0000.ts.net.",
+    "User": 1001,
+    "Addresses": ["100.99.1.2/32", "fd7a:115c:a1e0::2/128"],
+    "Tags": null,
+    "Online": true,
+    "ComputedName": "macbook-pro",
+    "ComputedNameWithHost": "macbook-pro (Mac)"
+  },
+  "UserProfile": { "ID": 1001, "LoginName": "user@example.com", "DisplayName": "User" },
+  "CapMap": null
+}

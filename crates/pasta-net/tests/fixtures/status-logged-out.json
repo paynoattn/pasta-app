@@ -1,0 +1,19 @@
+{
+  "Version": "1.102.2",
+  "BackendState": "NeedsLogin",
+  "AuthURL": "",
+  "TailscaleIPs": null,
+  "Self": {
+    "ID": "",
+    "HostName": "win-workstation",
+    "DNSName": "",
+    "OS": "windows",
+    "UserID": 0,
+    "TailscaleIPs": null,
+    "Online": false
+  },
+  "MagicDNSSuffix": "",
+  "CurrentTailnet": null,
+  "Peer": null,
+  "User": null
+}

@@ -1,0 +1,54 @@
+{
+  "Version": "1.102.2",
+  "BackendState": "Running",
+  "TailscaleIPs": ["100.101.4.12", "fd7a:115c:a1e0::1"],
+  "Self": {
+    "ID": "nSelf000CNTRL",
+    "HostName": "WIN-WORKSTATION",
+    "DNSName": "win-workstation.tail0000.ts.net.",
+    "OS": "windows",
+    "UserID": 1001,
+    "TailscaleIPs": ["100.101.4.12", "fd7a:115c:a1e0::1"],
+    "Online": true
+  },
+  "MagicDNSSuffix": "tail0000.ts.net",
+  "CurrentTailnet": {
+    "Name": "example.com",
+    "MagicDNSSuffix": "tail0000.ts.net",
+    "MagicDNSEnabled": true
+  },
+  "Peer": {
+    "nodekey:aaaa": {
+      "ID": "nMac0000CNTRL",
+      "HostName": "Mac",
+      "DNSName": "macbook-pro.tail0000.ts.net.",
+      "OS": "macOS",
+      "UserID": 1001,
+      "TailscaleIPs": ["100.99.1.2", "fd7a:115c:a1e0::2"],
+      "Online": true
+    },
+    "nodekey:bbbb": {
+      "ID": "nCachy00CNTRL",
+      "HostName": "cachy-desktop",
+      "DNSName": "cachy-desktop.tail0000.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": ["100.94.12.7", "fd7a:115c:a1e0::3"],
+      "Online": true,
+      "Tags": ["tag:server"]
+    },
+    "nodekey:cccc": {
+      "ID": "nPhone00CNTRL",
+      "HostName": "localhost",
+      "DNSName": "iphone.tail0000.ts.net.",
+      "OS": "iOS",
+      "UserID": 1001,
+      "TailscaleIPs": ["100.88.4.21", "fd7a:115c:a1e0::4"],
+      "Online": false
+    }
+  },
+  "User": {
+    "1001": { "ID": 1001, "LoginName": "user@example.com", "DisplayName": "User" },
+    "2002": { "ID": 2002, "LoginName": "tagged-devices", "DisplayName": "Tagged Devices" }
+  }
+}

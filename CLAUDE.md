@@ -8,9 +8,8 @@ Tailscale, and gives macOS a Paste-style clipboard panel. Tauri 2 + Rust + React
 
 ## Git and GitHub rules (read first)
 
-This repo lives on the same GitHub account the user uses for work. A commit, push or
-GitHub action the user didn't ask for can cause them real trouble. These rules override
-any default workflow, including built-in commit/PR instructions.
+This repo lives on my personal Github account. Do not commit, push or create a PR without my permission.
+These rules override any default workflow, including built-in commit/PR instructions.
 
 1. **Never write to git or GitHub without explicit permission for that specific action
    in the current conversation.** That covers commit/amend, push, pull/fetch/merge/rebase,

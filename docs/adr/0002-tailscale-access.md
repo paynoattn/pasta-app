@@ -1,6 +1,6 @@
 # 0002. Talk to Tailscale through its CLI's JSON output
 
-- Status: Accepted (Windows verified; macOS and Linux to confirm on hardware)
+- Status: Accepted (Windows and macOS verified; Linux to confirm on hardware)
 - Date: 2026-10-23
 - Issue: #4 (spike)
 
@@ -34,6 +34,15 @@ console window (the conditions of the real app):
   tagged devices share one synthetic `tagged-devices` user, so "same Tailscale user"
   can't be the trust rule; chain membership + approval is (ADR 0003).
 
+macOS (Apple Silicon, same tailnet), run from a terminal via `tailscale_probe`:
+
+- The probe found the CLI on `PATH` at `/opt/homebrew/bin/tailscale` (Homebrew).
+- `status --json` took **~20 ms** and `whois --json` **~14 ms**, unelevated. Peer names,
+  OS, tags and online state matched the Windows run.
+- **An app launched from Finder doesn't inherit the shell's `PATH`** (it gets roughly
+  `/usr/bin:/bin:/usr/sbin:/sbin`), so the `PATH` lookup that worked in the terminal won't
+  find Homebrew's CLI in the real app. The known-path fallback below covers it.
+
 ## Decision
 
 - Use the **CLI with `--json`**, implemented in `pasta_net::tailscale` (`status()`,
@@ -51,9 +60,11 @@ console window (the conditions of the real app):
 Run `cargo run -p pasta-net --example tailscale_probe` and record results here:
 
 - [x] Windows 11: works unelevated (above).
-- [ ] macOS, standalone Tailscale: CLI inside the bundle works from a non-sandboxed,
-      Developer ID–signed app.
-- [ ] macOS, App Store Tailscale: same.
+- [x] macOS, Homebrew CLI (`/opt/homebrew/bin/tailscale`) from a terminal: works
+      unelevated (above).
+- [ ] macOS, CLI inside `Tailscale.app` (standalone and App Store builds) from a
+      non-sandboxed, Developer ID–signed app launched from Finder. Re-check when the
+      app shell exists (#17), since `PATH` differs there.
 - [ ] CachyOS: `tailscale status` works for a normal user. If not, onboarding (#54)
       runs `sudo tailscale set --operator=$USER` once.
 - [ ] Error text when Tailscale is stopped / logged out on each OS (for onboarding copy).

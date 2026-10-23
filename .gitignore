@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Rust
+/target/
+
+# Claude Code: personal settings and the user's git approval window
+.claude/settings.local.json
+.claude/git-approval.json

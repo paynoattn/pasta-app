@@ -1,7 +1,6 @@
 # 0005. macOS: pasteboard polling, own-write markers, Universal Clipboard bridge
 
-- Status: Accepted (verified on an Apple Silicon Mac with an iPhone; one follow-up check
-  for password-manager browser extensions moves to #36)
+- Status: Accepted (verified on an Apple Silicon Mac with an iPhone)
 - Date: 2026-10-23
 - Issue: #6 (spike)
 
@@ -27,7 +26,10 @@ reach the tailnet and vice versa.
      `com.apple.Passwords`; to research: 1Password, Bitwarden, KeePassXC, Keychain
      Access, Dashlane, Enpass);
   3. **password-manager browser extensions**, recognised by an `org.chromium.source-url`
-     whose origin is `chrome-extension://<id>` for a known extension id (#36).
+     whose origin is `chrome-extension://<id>` for a known extension id (confirmed:
+     Proton Pass `ghmbeldphafepmbegfdlkpapadhbakde`; others to research in #36). Only
+     Chromium-based browsers attach this; Safari and Firefox extensions need their own
+     check (#36).
 - **Mark own writes** with a custom type `dev.pasta.origin`, **and** keep a short-lived
   set of content hashes Pasta wrote. Don't rely on the marker alone: it may not survive
   Universal Clipboard.
@@ -68,8 +70,9 @@ Second run (password managers and iPhone):
   markers can't be the main defence on macOS.
 - **The Proton Pass Chrome extension (in Brave) looks like an ordinary Brave copy:** plain
   text plus `org.chromium.source-url`, frontmost app Brave. App-based exclusion can't
-  catch it. The probe now prints the source URL's origin (scheme + host only) to confirm
-  it shows `chrome-extension://<id>`.
+  catch it. Its `org.chromium.source-url` origin, however, is
+  `chrome-extension://ghmbeldphafepmbegfdlkpapadhbakde` (Proton Pass's public extension
+  id), so extension copies can be recognised by id.
 - **A copy made on the iPhone arrived with `com.apple.is-remote-clipboard`** and rich
   formats: `iOS rich content paste pasteboard type`, `com.apple.webarchive`,
   `public.html`, `public.utf8-plain-text`, `public.text`,
@@ -96,8 +99,8 @@ Run on a Mac:
       in Activity Monitor (debug build). Negligible, so keep 250 ms.
 - [x] Password managers: Proton Pass (app and extension) and Apple Passwords do **not**
       set a concealed marker.
-- [ ] Proton Pass extension: `chromium source origin` shows `chrome-extension://<id>`
-      (follow-up in #36; needs the updated probe on the Mac).
+- [x] Proton Pass extension: `chromium source origin` shows
+      `chrome-extension://ghmbeldphafepmbegfdlkpapadhbakde` (its public extension id).
 - [ ] 1Password / Bitwarden / Keychain Access (later; no accounts yet).
 - [x] Frontmost app is correct when copying from different apps (see findings).
 - [x] A copy on an iPhone appears on the Mac and carries `com.apple.is-remote-clipboard`.

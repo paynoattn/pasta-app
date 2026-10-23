@@ -12,11 +12,12 @@ This repo lives on my personal Github account. Do not commit, push or create a P
 These rules override any default workflow, including built-in commit/PR instructions.
 
 1. **Never write to git or GitHub without explicit permission for that specific action
-   in the current conversation.** That covers commit/amend, push, pull/fetch/merge/rebase,
+   in the current conversation.** That covers commit/amend, push, merge/rebase,
    branch/checkout/switch, tag, reset/revert/restore/clean/stash, any `git config` change,
    and every GitHub write: PRs, issues, comments, reviews, labels, milestones, releases,
    `gh api` POST/PATCH/PUT/DELETE. Read-only commands (`status`, `diff`, `log`, `show`,
-   `gh … list/view`) and `git add` are fine.
+   `gh … list/view`), `git add`, and `git fetch` / `git pull` (they only bring changes
+   in) are fine.
 2. **Permission doesn't carry over.** "Commit this" is not permission to push or open a PR.
    A previous approval doesn't cover the next commit. If in doubt, ask.
 3. **Before asking, show exactly what will happen:** branch, files, commit message,

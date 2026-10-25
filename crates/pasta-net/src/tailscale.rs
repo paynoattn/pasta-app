@@ -19,7 +19,9 @@ use tokio::process::Command;
 /// Environment variable that overrides CLI discovery with an explicit path.
 pub const CLI_PATH_ENV: &str = "PASTA_TAILSCALE_CLI";
 
-const CLI_TIMEOUT: Duration = Duration::from_secs(5);
+/// Longer than the CLI's own retries (~5.2 s on Windows while the service starts),
+/// so an unreachable daemon is reported as such rather than as a timeout.
+const CLI_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[cfg(windows)]
 const CLI_FILE_NAME: &str = "tailscale.exe";
@@ -128,11 +130,18 @@ impl Tailscale {
         if message.is_empty() {
             message = String::from_utf8_lossy(&output.stdout).trim().to_owned();
         }
-        if message.contains("connect to local") {
+        if is_unreachable(&message) {
             return Err(TailscaleError::ServiceUnreachable(message));
         }
         Err(TailscaleError::Command { command, stderr: message })
     }
+}
+
+/// True for CLI errors meaning the daemon couldn't be reached. `status` says
+/// "failed to connect to local tailscaled …"; other commands print the raw
+/// transport error, e.g. `Get "http://local-tailscaled.sock/…": open \\.\pipe\…`.
+fn is_unreachable(message: &str) -> bool {
+    message.contains("connect to local") || message.contains("local-tailscaled.sock")
 }
 
 /// State of the local `tailscaled` backend.
@@ -171,8 +180,16 @@ pub struct Status {
 }
 
 impl Status {
+    /// True when the tailnet is up. A stopped backend still reports its last
+    /// netmap (own IPs and peers), so check this before trusting either.
+    pub fn is_running(&self) -> bool {
+        self.backend_state == BackendState::Running
+    }
+
+    /// Peers that are online; empty unless the backend is running.
     pub fn online_peers(&self) -> impl Iterator<Item = &Node> {
-        self.peers.iter().filter(|peer| peer.online)
+        let running = self.is_running();
+        self.peers.iter().filter(move |peer| running && peer.online)
     }
 }
 
@@ -385,6 +402,28 @@ mod tests {
         let status = parse_status(STATUS_LOGGED_OUT).unwrap();
         assert_eq!(status.backend_state, BackendState::NeedsLogin);
         assert!(status.peers.is_empty());
+    }
+
+    #[test]
+    fn stopped_backend_has_no_online_peers() {
+        let json = String::from_utf8(STATUS.to_vec()).unwrap().replace(r#""Running""#, r#""Stopped""#);
+        let status = parse_status(json.as_bytes()).unwrap();
+        assert!(!status.is_running());
+        assert!(!status.peers.is_empty(), "stopped status still lists peers");
+        assert_eq!(status.online_peers().count(), 0);
+    }
+
+    #[test]
+    fn recognises_unreachable_daemon_errors() {
+        // Messages captured on Windows with the service stopped or starting.
+        assert!(is_unreachable("failed to connect to local tailscaled process; is the Tailscale service running?"));
+        assert!(is_unreachable(
+            r#"failed to connect to local tailscaled (which appears to be running as tailscaled.exe, pid 1234). Got error: Get "http://local-tailscaled.sock/localapi/v0/status": open \\.\pipe\x: The system cannot find the file specified."#
+        ));
+        assert!(is_unreachable(
+            r#"Get "http://local-tailscaled.sock/localapi/v0/whois?proto=&addr=100.64.0.1": open \\.\pipe\ProtectedPrefix\Administrators\Tailscale\tailscaled: The system cannot find the file specified."#
+        ));
+        assert!(!is_unreachable("peer not found"));
     }
 
     #[test]

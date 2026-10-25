@@ -43,10 +43,11 @@ Windows failure modes (Tailscale 1.102.2, non-admin), for onboarding copy and er
 | Pipe missing while `tailscaled.exe` runs (e.g. service starting; simulated with `--socket`) | exit 1 after **~5.2 s**: `failed to connect to local tailscaled (which appears to be running as tailscaled.exe, pid …)` | exit 1 after ~5.2 s, same `open \\.\pipe\…` text                                                                                  |
 
 - A stopped tailnet still reports peers, so callers must gate on `BackendState == Running`,
-  not on the peer list.
-- The `whois` errors don't contain `connect to local`, so `pasta_net::tailscale` currently
-  maps them to `Command`, not `ServiceUnreachable`.
-- The ~5.2 s retry exceeds the 5 s `CLI_TIMEOUT`, so that case surfaces as `Timeout`.
+  not on the peer list. `Status::online_peers()` is empty unless `is_running()`.
+- The `whois` errors don't contain `connect to local`; any message naming
+  `local-tailscaled.sock` is also mapped to `ServiceUnreachable`.
+- The ~5.2 s retry exceeded the original 5 s CLI timeout (surfacing as `Timeout`), so the
+  timeout is now 10 s.
 
 Direct LocalAPI over the named pipe, from a non-admin process:
 
@@ -76,7 +77,7 @@ macOS (Apple Silicon, same tailnet), run from a terminal via `tailscale_probe`:
 ## Decision
 
 - Use the **CLI with `--json`**, implemented in `pasta_net::tailscale` (`status()`,
-  `whois()`, `is_tailnet_ip()`), with a 5 s timeout and no console window on Windows.
+  `whois()`, `is_tailnet_ip()`), with a 10 s timeout and no console window on Windows.
 - CLI discovery order: `PASTA_TAILSCALE_CLI` env var → `PATH` → known install paths:
   - Windows: `C:\Program Files\Tailscale\tailscale.exe`
   - macOS: `/Applications/Tailscale.app/Contents/MacOS/Tailscale` (App Store and
@@ -111,6 +112,5 @@ Run `cargo run -p pasta-net --example tailscale_probe` and record results here:
 - Spawning a process per call is acceptable at this rate. If it ever isn't, switch to a
   LocalAPI client behind the same `Tailscale` API. On Windows that is cheap: the named
   pipe works unelevated, needs no token, and answers in under 1 ms vs ~30 ms for the CLI.
-- Error mapping must also treat `open \\.\pipe\…` and `cannot find the file specified` as
-  "service unreachable", and the CLI timeout must be longer than the CLI's own ~5 s retry
-  (or Pasta should check the pipe exists first and fail fast).
+- A stopped or starting service costs 2–5 s per call before Pasta knows. If that hurts
+  onboarding, check the pipe exists first and fail fast.

@@ -167,7 +167,7 @@ importers:
   .:
     dependencies:
       '@tauri-apps/api':
-        specifier: ^2
+        specifier: ~2.12.4
         version: 2.12.4
       react:
         specifier: ^19.1.0
@@ -180,7 +180,7 @@ importers:
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.13.0)
       '@tauri-apps/cli':
-        specifier: ^2
+        specifier: ~2.12.4
         version: 2.12.4
       '@types/node':
         specifier: ^26.6.5

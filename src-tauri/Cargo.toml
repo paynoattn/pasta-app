@@ -19,7 +19,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# Keep on the same minor as @tauri-apps/api and @tauri-apps/cli in package.json:
+# `tauri build` refuses to run when they differ.
+tauri = { version = "~2.12", features = [] }
 serde.workspace = true
 serde_json.workspace = true
 pasta-core.workspace = true

@@ -23,11 +23,12 @@ const HOW_TO_APPROVE =
   "Stop and ask the user. If they agree, THEY run `node .claude/hooks/git-guard.mjs --approve 15` in a terminal (agents must never run it), then retry.";
 
 // git subcommands that create, rewrite or publish history, change refs or the
-// working tree, or reach a remote. `add` (staging) is deliberately allowed.
+// working tree, or reconfigure remotes. `add` (staging) and `fetch`/`pull`
+// (only bring changes in) are deliberately allowed, per the user.
 const GIT_WRITE = new Set([
-  "commit", "push", "pull", "merge", "rebase", "reset", "revert", "cherry-pick",
+  "commit", "push", "merge", "rebase", "reset", "revert", "cherry-pick",
   "tag", "am", "apply", "filter-branch", "filter-repo", "update-ref", "notes",
-  "replace", "commit-tree", "fetch", "clone", "remote", "submodule", "worktree",
+  "replace", "commit-tree", "clone", "remote", "submodule", "worktree",
   "stash", "init", "gc", "prune", "reflog", "branch", "checkout", "switch",
   "restore", "clean", "rm", "mv",
 ]);

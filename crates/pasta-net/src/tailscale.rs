@@ -173,7 +173,8 @@ impl From<String> for BackendState {
 #[derive(Debug, Clone)]
 pub struct Status {
     pub backend_state: BackendState,
-    /// This machine. Absent before the first login.
+    /// This machine. Logged out, it is still present but has an empty
+    /// `stable_id` and no IPs.
     pub self_node: Option<Node>,
     pub peers: Vec<Node>,
     pub magic_dns_suffix: String,
@@ -422,6 +423,13 @@ mod tests {
         ));
         assert!(is_unreachable(
             r#"Get "http://local-tailscaled.sock/localapi/v0/whois?proto=&addr=100.64.0.1": open \\.\pipe\ProtectedPrefix\Administrators\Tailscale\tailscaled: The system cannot find the file specified."#
+        ));
+        // Linux, with tailscaled not running and with its socket refusing connections.
+        assert!(is_unreachable(
+            "failed to connect to local tailscaled; it doesn't appear to be running (sudo systemctl start tailscaled ?)"
+        ));
+        assert!(is_unreachable(
+            "Failed to connect to local Tailscale daemon for /localapi/v0/whois; not running? Error: dial unix /var/run/tailscale/tailscaled.sock: connect: connection refused"
         ));
         assert!(!is_unreachable("peer not found"));
     }

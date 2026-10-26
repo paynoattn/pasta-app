@@ -1,6 +1,6 @@
 # 0002. Talk to Tailscale through its CLI's JSON output
 
-- Status: Accepted (Windows and macOS verified; Linux to confirm on hardware)
+- Status: Accepted (Windows, macOS and Linux verified)
 - Date: 2026-10-23
 - Issue: #4 (spike)
 
@@ -74,6 +74,39 @@ macOS (Apple Silicon, same tailnet), run from a terminal via `tailscale_probe`:
   `/usr/bin:/bin:/usr/sbin:/sbin`), so the `PATH` lookup that worked in the terminal won't
   find Homebrew's CLI in the real app. The known-path fallback below covers it.
 
+Linux (CachyOS, Tailscale 1.104.2 from the distro package, `tailscaled` under systemd),
+run as a normal user via `tailscale_probe`:
+
+- The CLI is `/usr/bin/tailscale`, found on `PATH` and also through the known-path
+  fallback with `PATH` unset.
+- `status --json` took **~4 ms** and `whois --json` **~3 ms**. Linux doesn't have the
+  slower first call seen on Windows.
+- The socket is `/run/tailscale/tailscaled.sock` (also reachable as `/var/run/…`), owned by
+  `root:root` with mode `0666`, so any local user can connect.
+- tailscaled lets **every** Unix-socket caller read (`status`, `whois`). Writes (`up`,
+  `down`, `set`, …) need root, the operator user or tailscaled's own UID
+  (`actor.Permissions` in `ipn/ipnserver`, 1.104.2). Pasta only reads, so it **needs no
+  `--operator` setup**. The test machine already had an operator set, so the non-operator
+  case comes from the source and the socket mode. It wasn't run as a second user.
+
+Linux failure modes (Tailscale 1.104.2, normal user):
+
+| State                                                                         | `status --json`                                                                                                                                                                            | `whois --json <ip>`                                                                                       |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Logged out (`NeedsLogin`, fresh state)                                        | exit 0, ~5 ms; `Self` present with empty `ID` and `DNSName` and no IPs; `Peer: null`; `Health: ["Tailscale is stopped."]`                                                                  | exit 1, ~3 ms: `peer not found`                                                                           |
+| Daemon not running (no `tailscaled` process, no socket)                       | exit 1 after **~2.0 s**: `failed to connect to local tailscaled; it doesn't appear to be running (sudo systemctl start tailscaled ?)`                                                      | exit 1 after ~2.0 s: `Failed to connect to local Tailscale daemon for /localapi/v0/whois; not running? …` |
+| Socket missing or refusing while a `tailscaled` process runs (starting/stale) | exit 1 after **~5.1 s**: `failed to connect to local tailscaled (which appears to be running as tailscaled, pid …). Got error: Failed to connect to local Tailscale daemon … not running?` | exit 1 after ~5.1 s: `Failed to connect to local Tailscale daemon for /localapi/v0/whois; not running? …` |
+
+- How each state was produced, without touching the real tailnet: logged out was a separate
+  `tailscaled --tun=userspace-networking` with an empty state dir and its own `--socket`.
+  The other two rows point `--socket` at a missing path, or at a stale socket with no
+  listener, with the real daemon either visible or hidden in a PID namespace.
+- Every message contains `connect to local`, so the existing mapping reports
+  `ServiceUnreachable`. The 5.1 s retry fits inside the 10 s timeout.
+- Not captured: disconnected (`tailscale down` on a logged-in node), because it would take
+  this machine off the shared tailnet. It's the same backend code as Windows, so expect
+  `Stopped` with the cached netmap. `is_running()` gates it either way.
+
 ## Decision
 
 - Use the **CLI with `--json`**, implemented in `pasta_net::tailscale` (`status()`,
@@ -96,14 +129,17 @@ Run `cargo run -p pasta-net --example tailscale_probe` and record results here:
 - [ ] macOS, CLI inside `Tailscale.app` (standalone and App Store builds) from a
       non-sandboxed, Developer ID–signed app launched from Finder. Re-check when the
       app shell exists (#17), since `PATH` differs there.
-- [ ] CachyOS: `tailscale status` works for a normal user. If not, onboarding (#54)
-      runs `sudo tailscale set --operator=$USER` once.
+- [x] CachyOS: `status` and `whois` work for a normal user (above). Reads don't need
+      the operator, so onboarding (#54) needs no `sudo tailscale set --operator=$USER`
+      step unless Pasta starts changing Tailscale settings.
 - [x] Windows: error text when Tailscale is disconnected or its service is stopped
       (table above). LocalAPI named pipe works unelevated (above).
 - [ ] Windows: logged out (`NeedsLogin`) output; not captured, since logging out needs a
       browser re-auth.
-- [ ] macOS / CachyOS: error text when Tailscale is stopped / logged out (for onboarding
-      copy). Code treats any `connect to local …` message as "service unreachable".
+- [x] CachyOS: error text when logged out or the daemon is unreachable (table above).
+- [ ] CachyOS: disconnected (`tailscale down`) output; not captured (above).
+- [ ] macOS: error text when Tailscale is stopped / logged out (for onboarding copy).
+      Code treats any `connect to local …` message as "service unreachable".
 
 ## Consequences
 
@@ -112,5 +148,6 @@ Run `cargo run -p pasta-net --example tailscale_probe` and record results here:
 - Spawning a process per call is acceptable at this rate. If it ever isn't, switch to a
   LocalAPI client behind the same `Tailscale` API. On Windows that is cheap: the named
   pipe works unelevated, needs no token, and answers in under 1 ms vs ~30 ms for the CLI.
-- A stopped or starting service costs 2–5 s per call before Pasta knows. If that hurts
-  onboarding, check the pipe exists first and fail fast.
+- A stopped or starting service costs 2–5 s per call before Pasta knows, on Windows and
+  Linux alike. If that hurts onboarding, check that the pipe or socket exists first and
+  fail fast.

@@ -331,7 +331,10 @@ struct RawUserProfile {
 fn parse_status(json: &[u8]) -> Result<Status, TailscaleError> {
     let raw: RawStatus =
         serde_json::from_slice(json).map_err(|source| TailscaleError::Parse { command: "status", source })?;
-    let mut peers: Vec<Node> = raw.peer.unwrap_or_default().into_values().map(Node::from).collect();
+    // Right after a logout, Windows still lists the old peers by node key, with no id,
+    // name or IPs. They aren't in the netmap, so drop them.
+    let mut peers: Vec<Node> =
+        raw.peer.unwrap_or_default().into_values().filter(|peer| !peer.id.is_empty()).map(Node::from).collect();
     peers.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(Status {
         backend_state: raw.backend_state.into(),
@@ -407,9 +410,16 @@ mod tests {
 
     #[test]
     fn parses_logged_out_status() {
+        // Captured on Windows straight after `tailscale logout`: stale peers with no id.
         let status = parse_status(STATUS_LOGGED_OUT).unwrap();
         assert_eq!(status.backend_state, BackendState::NeedsLogin);
-        assert!(status.peers.is_empty());
+        assert!(status.self_node.unwrap().ips.is_empty());
+        assert!(status.peers.is_empty(), "stale peers are dropped");
+
+        // Fresh state (macOS, Linux): no peer map at all.
+        let json = String::from_utf8(STATUS_LOGGED_OUT.to_vec()).unwrap();
+        let fresh = format!("{}\"Peer\": null, \"User\": null}}", &json[..json.find("\"Peer\"").unwrap()]);
+        assert!(parse_status(fresh.as_bytes()).unwrap().peers.is_empty());
     }
 
     #[test]

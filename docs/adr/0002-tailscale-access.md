@@ -38,10 +38,16 @@ Windows failure modes (Tailscale 1.102.2, non-admin), for onboarding copy and er
 
 | State                                                                                       | `status --json`                                                                                                         | `whois --json <ip>`                                                                                                               |
 | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Logged out (`tailscale logout` on a logged-in node)                                         | exit 0, ~32 ms, `NeedsLogin`; `Self` with empty `ID` and `DNSName` and no IPs; **stale `Peer` entries** (see below)     | exit 1, ~80 ms: `peer not found`, also for a peer that resolved before the logout                                                 |
 | Disconnected (`tailscale down`)                                                             | exit 0, ~26 ms, `BackendState: "Stopped"`; **`Self` (with IPs) and the full `Peer` map are still present**              | known peer still resolves (cached netmap); unknown IP: `peer not found`                                                           |
 | Service stopped (no `tailscaled.exe`, no pipe)                                              | exit 1 after **~2 s** of retries: `failed to connect to local tailscaled process; is the Tailscale service running?`    | exit 1 after ~2 s: `Get "http://local-tailscaled.sock/…": open \\.\pipe\…\tailscaled: The system cannot find the file specified.` |
 | Pipe missing while `tailscaled.exe` runs (e.g. service starting; simulated with `--socket`) | exit 1 after **~5.2 s**: `failed to connect to local tailscaled (which appears to be running as tailscaled.exe, pid …)` | exit 1 after ~5.2 s, same `open \\.\pipe\…` text                                                                                  |
 
+- After a logout, `Peer` isn't `null` as it is on a fresh install (macOS, Linux). It
+  keeps one entry per former peer, keyed by node key, with empty `ID`, `HostName` and
+  `DNSName`, `TailscaleIPs: null`, `Online: false` and `InNetworkMap: false`.
+  `parse_status()` drops peers with an empty `ID`. `Health` is `["Tailscale is stopped."]`,
+  as on the other OSes.
 - A stopped tailnet still reports peers, so callers must gate on `BackendState == Running`,
   not on the peer list. `Status::online_peers()` is empty unless `is_running()`.
 - The `whois` errors don't contain `connect to local`; any message naming
@@ -191,8 +197,7 @@ Run `cargo run -p pasta-net --example tailscale_probe` and record results here:
       step unless Pasta starts changing Tailscale settings.
 - [x] Windows: error text when Tailscale is disconnected or its service is stopped
       (table above). LocalAPI named pipe works unelevated (above).
-- [ ] Windows: logged out (`NeedsLogin`) output; not captured, since logging out needs a
-      browser re-auth.
+- [x] Windows: logged out (`NeedsLogin`) output (table above).
 - [x] CachyOS: error text when logged out or the daemon is unreachable (table above).
 - [x] CachyOS: disconnected (`tailscale down`) output (table above).
 - [x] macOS: output when logged out, disconnected or with the extension unapproved

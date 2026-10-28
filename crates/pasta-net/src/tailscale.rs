@@ -119,6 +119,13 @@ impl Tailscale {
             // CREATE_NO_WINDOW: don't flash a console from the GUI app.
             cmd.creation_flags(0x0800_0000);
         }
+        #[cfg(target_os = "macos")]
+        if std::env::var_os("TERM").is_none() {
+            // The App Store bundle binary only acts as the CLI when it sees a terminal
+            // (`TERM`, `TERM_PROGRAM` or `SHLVL`). An app launched from Finder has none,
+            // so it starts as the GUI instead and hangs or prints non-JSON.
+            cmd.env("TERM", "dumb");
+        }
         let output = tokio::time::timeout(CLI_TIMEOUT, cmd.output())
             .await
             .map_err(|_| TailscaleError::Timeout { command })??;

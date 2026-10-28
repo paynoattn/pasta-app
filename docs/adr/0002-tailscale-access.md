@@ -145,19 +145,22 @@ Linux failure modes (Tailscale 1.104.2, normal user):
 
 | State                                                                         | `status --json`                                                                                                                                                                            | `whois --json <ip>`                                                                                       |
 | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Disconnected (`tailscale down` on a logged-in node)                           | exit 0, ~5 ms, `Stopped`; `Self` (with IPs) and the full `Peer` map still present, **with stale `Online: true` on peers that were up**; `Health: ["Tailscale is stopped."]`                | known peer still resolves (exit 0, ~4 ms); unknown tailnet or LAN IP exits 1, ~3 ms: `peer not found`     |
 | Logged out (`NeedsLogin`, fresh state)                                        | exit 0, ~5 ms; `Self` present with empty `ID` and `DNSName` and no IPs; `Peer: null`; `Health: ["Tailscale is stopped."]`                                                                  | exit 1, ~3 ms: `peer not found`                                                                           |
 | Daemon not running (no `tailscaled` process, no socket)                       | exit 1 after **~2.0 s**: `failed to connect to local tailscaled; it doesn't appear to be running (sudo systemctl start tailscaled ?)`                                                      | exit 1 after ~2.0 s: `Failed to connect to local Tailscale daemon for /localapi/v0/whois; not running? …` |
 | Socket missing or refusing while a `tailscaled` process runs (starting/stale) | exit 1 after **~5.1 s**: `failed to connect to local tailscaled (which appears to be running as tailscaled, pid …). Got error: Failed to connect to local Tailscale daemon … not running?` | exit 1 after ~5.1 s: `Failed to connect to local Tailscale daemon for /localapi/v0/whois; not running? …` |
 
-- How each state was produced, without touching the real tailnet: logged out was a separate
+- How each state was produced: disconnected was a real `tailscale down` / `tailscale up`
+  of about 10 s, run by the operator user without `sudo` (a plain `up` restored it even
+  with `--ssh` set). The rest didn't touch the real tailnet: logged out was a separate
   `tailscaled --tun=userspace-networking` with an empty state dir and its own `--socket`.
   The other two rows point `--socket` at a missing path, or at a stale socket with no
   listener, with the real daemon either visible or hidden in a PID namespace.
 - Every message contains `connect to local`, so the existing mapping reports
   `ServiceUnreachable`. The 5.1 s retry fits inside the 10 s timeout.
-- Not captured: disconnected (`tailscale down` on a logged-in node), because it would take
-  this machine off the shared tailnet. It's the same backend code as Windows, so expect
-  `Stopped` with the cached netmap. `is_running()` gates it either way.
+- Disconnected keeps each peer's last `Online` value: 5 of 10 peers still said
+  `Online: true` while the node was `Stopped`. The peer flags can't be trusted on their
+  own; `online_peers()` returned none because it checks `is_running()` first.
 
 ## Decision
 
@@ -191,7 +194,7 @@ Run `cargo run -p pasta-net --example tailscale_probe` and record results here:
 - [ ] Windows: logged out (`NeedsLogin`) output; not captured, since logging out needs a
       browser re-auth.
 - [x] CachyOS: error text when logged out or the daemon is unreachable (table above).
-- [ ] CachyOS: disconnected (`tailscale down`) output; not captured (above).
+- [x] CachyOS: disconnected (`tailscale down`) output (table above).
 - [x] macOS: output when logged out, disconnected or with the extension unapproved
       (table above).
 - [ ] macOS: a standard (non-admin) user with the standalone build, which can't read

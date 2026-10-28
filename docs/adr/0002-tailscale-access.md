@@ -65,14 +65,66 @@ token`. tokio's `ClientOptions` defaults to `SECURITY_IDENTIFICATION`, so a Rust
   a time (unless unattended mode is on), so Pasta running in another session should
   expect the LocalAPI or CLI to refuse it.
 
-macOS (Apple Silicon, same tailnet), run from a terminal via `tailscale_probe`:
+macOS 27.2 (Apple Silicon, same tailnet), unelevated, with all three ways of installing
+Tailscale: Homebrew's open-source `tailscaled` (1.104.1), the Mac App Store app (1.104.2)
+and the standalone Developer ID app from pkgs.tailscale.com (1.104.2):
 
-- The probe found the CLI on `PATH` at `/opt/homebrew/bin/tailscale` (Homebrew).
-- `status --json` took **~20 ms** and `whois --json` **~14 ms**, unelevated. Peer names,
+- From a terminal, `status --json` and `whois --json` take **~25–35 ms** through the CLI
+  inside `Tailscale.app` (both builds), and ~15–80 ms through Homebrew's CLI. Peer names,
   OS, tags and online state matched the Windows run.
-- **An app launched from Finder doesn't inherit the shell's `PATH`** (it gets roughly
-  `/usr/bin:/bin:/usr/sbin:/sbin`), so the `PATH` lookup that worked in the terminal won't
-  find Homebrew's CLI in the real app. The known-path fallback below covers it.
+- **The `Tailscale` binary inside `Tailscale.app` is the GUI and the CLI in one.** It
+  runs as the CLI only if `TERM`, `TERM_PROGRAM` or `SHLVL` is set (any value). Each
+  variable was tested on its own with `env -i`. Without them it starts as the GUI. It
+  either prints `The Tailscale GUI failed to start: … (Tailscale.CLIError error 3.)` and
+  exits **0**, or it hangs. Both builds behave the same way.
+- **An app launched from Finder has none of those variables**, and its `PATH` is
+  `/usr/bin:/bin:/usr/sbin:/sbin`, so discovery falls through to the bundle CLI. This was
+  measured with the probe as the executable of an ad-hoc-signed `.app` that Finder opened
+  through AppleScript. `open` from a terminal isn't a fair test: it passes the shell's
+  environment through, including `TERM`, `SHLVL` and Homebrew's `PATH`. Before the fix,
+  the Finder launch failed with `tailscale status timed out` on the App Store build and
+  with a JSON parse error on the standalone build. After it, `status` and `whois` work on
+  both (~50 ms and ~25–30 ms).
+- Fix: on macOS, `pasta_net::tailscale` sets `TERM=dumb` on the CLI process when `TERM`
+  is unset. The app isn't sandboxed, so running another app's binary works.
+- How the CLI reaches the daemon (`safesocket` in the open-source CLI):
+  - App Store: the network extension (`IPNExtension`, running as the user) listens on a
+    random `127.0.0.1` port. The token is in the name of a `sameuserproof-<port>-<token>`
+    file inside its group container. The CLI finds it with `lsof -c IPNExtension` because
+    TCC blocks other apps from reading that container.
+  - Standalone: a system extension running as root. `/Library/Tailscale/ipnport` is a
+    symlink to the port. The token is in `/Library/Tailscale/sameuserproof-<port>`, owned
+    by `root:admin` with mode `0640`, so only admin users can read it. A standard
+    (non-admin) user wasn't tested.
+  - Homebrew: the Unix socket `/var/run/tailscaled.socket` (`root:daemon`, `0666`). The
+    CLI tries a GUI build's LocalAPI first, so with Homebrew and the App Store app both
+    installed, Homebrew's CLI talked to the App Store daemon (and printed a version
+    mismatch warning on stderr).
+  - A direct LocalAPI client would have to copy that `lsof` and token-file lookup. That
+    is more fragile than the CLI, which handles it.
+- Unprivileged `tailscale down` / `up` worked on every build (Homebrew had no operator
+  set).
+- Quitting `Tailscale.app` through AppleScript doesn't stop it. It relaunched within a
+  second, and the network extension kept serving the LocalAPI. `scutil --nc stop` on the
+  VPN configuration also reconnected straight away.
+
+macOS failure modes (CLI inside `Tailscale.app`, `TERM` set), for onboarding copy and
+error mapping:
+
+| State                                                                   | `status --json`                                                                                                                                                                            | `whois --json <ip>`                                                                                        |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Logged out (App Store, fresh install)                                   | exit 0, ~30 ms, `NeedsLogin`; `Self` present with empty `ID` and `DNSName` and no IPs; `Peer: null`; `Health: ["Tailscale is stopped."]`                                                   | not captured                                                                                               |
+| Disconnected (`tailscale down`), both builds and Homebrew               | exit 0, ~35 ms, `Stopped`; `Self` (with IPs) and the full `Peer` map still present; `Health: ["Tailscale is stopped."]`                                                                    | known peer still resolves; unknown IP exits 1 with `<date> <time> peer not found` (log-prefixed on stderr) |
+| Standalone, system extension installed but not approved by the user     | **hangs with no output** (killed at 15 s); `systemextensionsctl` shows `[activated waiting for user]`                                                                                      | not captured                                                                                               |
+| Homebrew daemon, socket missing or refusing (simulated with `--socket`) | exit 1 after **~5.1 s**: `failed to connect to local tailscaled (which appears to be running as tailscaled, pid …). Got error: Failed to connect to local Tailscale daemon … not running?` | exit 1 after ~5.1 s: `Failed to connect to local Tailscale daemon for /localapi/v0/whois; not running? …`  |
+
+- `peer not found` is still matched, since `whois()` checks with `contains`.
+- The unapproved extension is the likely state right after someone installs the
+  standalone app and dismisses the prompt. Pasta sees it as `Timeout` after 10 s, not
+  `ServiceUnreachable`, so onboarding (#54) should read a macOS `status` timeout as
+  "open Tailscale and allow its system extension".
+- Not captured: logged out on the standalone build, or the VPN switched off by the user
+  in System Settings while the extension stays installed.
 
 Linux (CachyOS, Tailscale 1.104.2 from the distro package, `tailscaled` under systemd),
 run as a normal user via `tailscale_probe`:
@@ -110,7 +162,9 @@ Linux failure modes (Tailscale 1.104.2, normal user):
 ## Decision
 
 - Use the **CLI with `--json`**, implemented in `pasta_net::tailscale` (`status()`,
-  `whois()`, `is_tailnet_ip()`), with a 10 s timeout and no console window on Windows.
+  `whois()`, `is_tailnet_ip()`), with a 10 s timeout, no console window on Windows, and
+  `TERM=dumb` added on macOS when `TERM` is unset (so the `Tailscale.app` binary runs as
+  the CLI).
 - CLI discovery order: `PASTA_TAILSCALE_CLI` env var → `PATH` → known install paths:
   - Windows: `C:\Program Files\Tailscale\tailscale.exe`
   - macOS: `/Applications/Tailscale.app/Contents/MacOS/Tailscale` (App Store and
@@ -126,9 +180,9 @@ Run `cargo run -p pasta-net --example tailscale_probe` and record results here:
 - [x] Windows 11: works unelevated (above).
 - [x] macOS, Homebrew CLI (`/opt/homebrew/bin/tailscale`) from a terminal: works
       unelevated (above).
-- [ ] macOS, CLI inside `Tailscale.app` (standalone and App Store builds) from a
-      non-sandboxed, Developer ID–signed app launched from Finder. Re-check when the
-      app shell exists (#17), since `PATH` differs there.
+- [x] macOS, CLI inside `Tailscale.app` (standalone and App Store builds) from a
+      non-sandboxed app launched from Finder: works once `TERM` is set (above). Tested
+      ad-hoc signed. Re-check with the Developer ID–signed app shell (#17).
 - [x] CachyOS: `status` and `whois` work for a normal user (above). Reads don't need
       the operator, so onboarding (#54) needs no `sudo tailscale set --operator=$USER`
       step unless Pasta starts changing Tailscale settings.
@@ -138,13 +192,18 @@ Run `cargo run -p pasta-net --example tailscale_probe` and record results here:
       browser re-auth.
 - [x] CachyOS: error text when logged out or the daemon is unreachable (table above).
 - [ ] CachyOS: disconnected (`tailscale down`) output; not captured (above).
-- [ ] macOS: error text when Tailscale is stopped / logged out (for onboarding copy).
-      Code treats any `connect to local …` message as "service unreachable".
+- [x] macOS: output when logged out, disconnected or with the extension unapproved
+      (table above).
+- [ ] macOS: a standard (non-admin) user with the standalone build, which can't read
+      the `root:admin` token file.
 
 ## Consequences
 
 - Pasta must not use the macOS App Sandbox (it couldn't exec the CLI). Fine for
   Developer ID distribution (#56).
+- Pasta depends on an undocumented heuristic in the `Tailscale.app` binary (CLI mode when
+  `TERM` is set). If a Tailscale update changes it, Finder-launched Pasta breaks while
+  terminal runs keep working. Test the Finder launch when Tailscale updates.
 - Spawning a process per call is acceptable at this rate. If it ever isn't, switch to a
   LocalAPI client behind the same `Tailscale` API. On Windows that is cheap: the named
   pipe works unelevated, needs no token, and answers in under 1 ms vs ~30 ms for the CLI.

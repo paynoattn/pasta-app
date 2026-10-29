@@ -12,8 +12,34 @@
     "TailscaleIPs": null,
     "Online": false
   },
+  "Health": ["Tailscale is stopped."],
   "MagicDNSSuffix": "",
   "CurrentTailnet": null,
-  "Peer": null,
+  "Peer": {
+    "nodekey:1111111111111111111111111111111111111111111111111111111111111111": {
+      "ID": "",
+      "PublicKey": "nodekey:1111111111111111111111111111111111111111111111111111111111111111",
+      "HostName": "",
+      "DNSName": "",
+      "OS": "",
+      "UserID": 0,
+      "TailscaleIPs": null,
+      "Online": false,
+      "InNetworkMap": false,
+      "InEngine": true
+    },
+    "nodekey:2222222222222222222222222222222222222222222222222222222222222222": {
+      "ID": "",
+      "PublicKey": "nodekey:2222222222222222222222222222222222222222222222222222222222222222",
+      "HostName": "",
+      "DNSName": "",
+      "OS": "",
+      "UserID": 0,
+      "TailscaleIPs": null,
+      "Online": false,
+      "InNetworkMap": false,
+      "InEngine": true
+    }
+  },
   "User": null
 }

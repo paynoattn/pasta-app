@@ -19,7 +19,9 @@ use tokio::process::Command;
 /// Environment variable that overrides CLI discovery with an explicit path.
 pub const CLI_PATH_ENV: &str = "PASTA_TAILSCALE_CLI";
 
-const CLI_TIMEOUT: Duration = Duration::from_secs(5);
+/// Longer than the CLI's own retries (~5.2 s on Windows while the service starts),
+/// so an unreachable daemon is reported as such rather than as a timeout.
+const CLI_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[cfg(windows)]
 const CLI_FILE_NAME: &str = "tailscale.exe";
@@ -117,6 +119,13 @@ impl Tailscale {
             // CREATE_NO_WINDOW: don't flash a console from the GUI app.
             cmd.creation_flags(0x0800_0000);
         }
+        #[cfg(target_os = "macos")]
+        if std::env::var_os("TERM").is_none() {
+            // The App Store bundle binary only acts as the CLI when it sees a terminal
+            // (`TERM`, `TERM_PROGRAM` or `SHLVL`). An app launched from Finder has none,
+            // so it starts as the GUI instead and hangs or prints non-JSON.
+            cmd.env("TERM", "dumb");
+        }
         let output = tokio::time::timeout(CLI_TIMEOUT, cmd.output())
             .await
             .map_err(|_| TailscaleError::Timeout { command })??;
@@ -128,11 +137,18 @@ impl Tailscale {
         if message.is_empty() {
             message = String::from_utf8_lossy(&output.stdout).trim().to_owned();
         }
-        if message.contains("connect to local") {
+        if is_unreachable(&message) {
             return Err(TailscaleError::ServiceUnreachable(message));
         }
         Err(TailscaleError::Command { command, stderr: message })
     }
+}
+
+/// True for CLI errors meaning the daemon couldn't be reached. `status` says
+/// "failed to connect to local tailscaled …"; other commands print the raw
+/// transport error, e.g. `Get "http://local-tailscaled.sock/…": open \\.\pipe\…`.
+fn is_unreachable(message: &str) -> bool {
+    message.contains("connect to local") || message.contains("local-tailscaled.sock")
 }
 
 /// State of the local `tailscaled` backend.
@@ -164,15 +180,24 @@ impl From<String> for BackendState {
 #[derive(Debug, Clone)]
 pub struct Status {
     pub backend_state: BackendState,
-    /// This machine. Absent before the first login.
+    /// This machine. Logged out, it is still present but has an empty
+    /// `stable_id` and no IPs.
     pub self_node: Option<Node>,
     pub peers: Vec<Node>,
     pub magic_dns_suffix: String,
 }
 
 impl Status {
+    /// True when the tailnet is up. A stopped backend still reports its last
+    /// netmap (own IPs and peers), so check this before trusting either.
+    pub fn is_running(&self) -> bool {
+        self.backend_state == BackendState::Running
+    }
+
+    /// Peers that are online; empty unless the backend is running.
     pub fn online_peers(&self) -> impl Iterator<Item = &Node> {
-        self.peers.iter().filter(|peer| peer.online)
+        let running = self.is_running();
+        self.peers.iter().filter(move |peer| running && peer.online)
     }
 }
 
@@ -306,7 +331,10 @@ struct RawUserProfile {
 fn parse_status(json: &[u8]) -> Result<Status, TailscaleError> {
     let raw: RawStatus =
         serde_json::from_slice(json).map_err(|source| TailscaleError::Parse { command: "status", source })?;
-    let mut peers: Vec<Node> = raw.peer.unwrap_or_default().into_values().map(Node::from).collect();
+    // Right after a logout, Windows still lists the old peers by node key, with no id,
+    // name or IPs. They aren't in the netmap, so drop them.
+    let mut peers: Vec<Node> =
+        raw.peer.unwrap_or_default().into_values().filter(|peer| !peer.id.is_empty()).map(Node::from).collect();
     peers.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(Status {
         backend_state: raw.backend_state.into(),
@@ -382,9 +410,45 @@ mod tests {
 
     #[test]
     fn parses_logged_out_status() {
+        // Captured on Windows straight after `tailscale logout`: stale peers with no id.
         let status = parse_status(STATUS_LOGGED_OUT).unwrap();
         assert_eq!(status.backend_state, BackendState::NeedsLogin);
-        assert!(status.peers.is_empty());
+        assert!(status.self_node.unwrap().ips.is_empty());
+        assert!(status.peers.is_empty(), "stale peers are dropped");
+
+        // Fresh state (macOS, Linux): no peer map at all.
+        let json = String::from_utf8(STATUS_LOGGED_OUT.to_vec()).unwrap();
+        let fresh = format!("{}\"Peer\": null, \"User\": null}}", &json[..json.find("\"Peer\"").unwrap()]);
+        assert!(parse_status(fresh.as_bytes()).unwrap().peers.is_empty());
+    }
+
+    #[test]
+    fn stopped_backend_has_no_online_peers() {
+        let json = String::from_utf8(STATUS.to_vec()).unwrap().replace(r#""Running""#, r#""Stopped""#);
+        let status = parse_status(json.as_bytes()).unwrap();
+        assert!(!status.is_running());
+        assert!(!status.peers.is_empty(), "stopped status still lists peers");
+        assert_eq!(status.online_peers().count(), 0);
+    }
+
+    #[test]
+    fn recognises_unreachable_daemon_errors() {
+        // Messages captured on Windows with the service stopped or starting.
+        assert!(is_unreachable("failed to connect to local tailscaled process; is the Tailscale service running?"));
+        assert!(is_unreachable(
+            r#"failed to connect to local tailscaled (which appears to be running as tailscaled.exe, pid 1234). Got error: Get "http://local-tailscaled.sock/localapi/v0/status": open \\.\pipe\x: The system cannot find the file specified."#
+        ));
+        assert!(is_unreachable(
+            r#"Get "http://local-tailscaled.sock/localapi/v0/whois?proto=&addr=100.64.0.1": open \\.\pipe\ProtectedPrefix\Administrators\Tailscale\tailscaled: The system cannot find the file specified."#
+        ));
+        // Linux, with tailscaled not running and with its socket refusing connections.
+        assert!(is_unreachable(
+            "failed to connect to local tailscaled; it doesn't appear to be running (sudo systemctl start tailscaled ?)"
+        ));
+        assert!(is_unreachable(
+            "Failed to connect to local Tailscale daemon for /localapi/v0/whois; not running? Error: dial unix /var/run/tailscale/tailscaled.sock: connect: connection refused"
+        ));
+        assert!(!is_unreachable("peer not found"));
     }
 
     #[test]

@@ -15,7 +15,8 @@
         "label": "main",
         "title": "Pasta",
         "width": 1000,
-        "height": 680
+        "height": 680,
+        "visible": false
       }
     ],
     "security": {

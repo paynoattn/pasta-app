@@ -31,7 +31,9 @@ windows = { version = "0.62", features = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSData", "NSDate", "NSRunLoop"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSData", "NSDate", "NSDictionary", "NSRunLoop", "NSValue"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGWindow"] }
 objc2-app-kit = { version = "0.3", features = ["NSPasteboard", "NSWorkspace", "NSRunningApplication"] }
 
 [lints]

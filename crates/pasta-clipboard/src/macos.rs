@@ -7,8 +7,13 @@ use std::thread;
 use std::time::Duration;
 
 use objc2::rc::autoreleasepool;
-use objc2_app_kit::{NSPasteboard, NSPasteboardTypeHTML, NSPasteboardTypeRTF, NSPasteboardTypeString, NSWorkspace};
-use objc2_foundation::{NSData, NSString};
+use objc2::runtime::AnyObject;
+use objc2_app_kit::{
+    NSPasteboard, NSPasteboardTypeHTML, NSPasteboardTypeRTF, NSPasteboardTypeString, NSRunningApplication, NSWorkspace,
+};
+use objc2_core_foundation::CFRetained;
+use objc2_core_graphics::{CGWindowListCopyWindowInfo, CGWindowListOption, kCGNullWindowID};
+use objc2_foundation::{NSArray, NSData, NSDictionary, NSNumber, NSString};
 use pasta_core::clip::{Flavors, SourceApp};
 use pasta_core::clipboard::{ClipboardAdapter, ClipboardError, CopySink, LocalCopy, Watch, WriteReceipt};
 use uuid::Uuid;
@@ -160,9 +165,39 @@ fn read(pasteboard: &NSPasteboard) -> Option<LocalCopy> {
     Some(LocalCopy { flavors: Flavors { plain, html, rtf }, source_app })
 }
 
+/// The app in front when the copy was seen.
+///
+/// Asks the WindowServer for the owner of the frontmost normal window rather
+/// than trusting `NSWorkspace.frontmostApplication`: that value is cached and
+/// refreshed by the main run loop, and read from this thread in the app it
+/// lagged behind, so copies in Passwords and Proton Pass were attributed to
+/// the previous app and synced (#13). NSWorkspace is the fallback when no app
+/// window is on screen.
 fn frontmost_app() -> Option<SourceApp> {
-    let app = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+    let app = frontmost_window_pid()
+        .and_then(NSRunningApplication::runningApplicationWithProcessIdentifier)
+        .or_else(|| NSWorkspace::sharedWorkspace().frontmostApplication())?;
     let name = app.localizedName().map(|name| name.to_string()).unwrap_or_default();
     let id = app.bundleIdentifier().map(|id| id.to_string()).unwrap_or_default();
     Some(SourceApp { name, id })
+}
+
+/// Process id of the frontmost on-screen window at the normal level (layer 0),
+/// skipping Pasta's own windows.
+fn frontmost_window_pid() -> Option<i32> {
+    let options = CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements;
+    let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID)?;
+    // A CFArray of CFDictionary is toll-free bridged to NSArray<NSDictionary>; `windows`
+    // keeps it alive for the borrow. Ordered front to back.
+    let windows: &NSArray<NSDictionary<NSString, AnyObject>> =
+        unsafe { &*CFRetained::as_ptr(&windows).as_ptr().cast() };
+    let own_pid = i32::try_from(std::process::id()).unwrap_or_default();
+    windows.iter().find_map(|window| {
+        let number = |key: &str| {
+            let value = window.objectForKey(&NSString::from_str(key))?;
+            Some(value.downcast::<NSNumber>().ok()?.intValue())
+        };
+        let pid = number("kCGWindowOwnerPID")?;
+        (number("kCGWindowLayer")? == 0 && pid != own_pid).then_some(pid)
+    })
 }

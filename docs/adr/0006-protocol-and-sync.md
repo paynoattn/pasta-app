@@ -65,6 +65,12 @@ through Universal Clipboard), so the marker can't be the only echo guard.
   returns at once: in the app it became a busy loop at ~99% CPU and missed every change
   after the first. With `thread::sleep` it uses ~0.2% CPU. The app's main thread keeps
   `NSWorkspace.frontmostApplication` current.
+- The source app comes from the WindowServer, not NSWorkspace: the owner of the frontmost
+  on-screen window at layer 0 (`CGWindowListCopyWindowInfo`), with
+  `NSWorkspace.frontmostApplication` as the fallback when no app window is on screen.
+  Read from the watcher thread in the app, NSWorkspace's cached value lagged, so copies in
+  Apple Passwords and the Proton Pass app were attributed to the previous app and synced
+  (#13). Proton Pass's extension (source URL) and Bitwarden were already skipped.
 
 ## Consequences
 

@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -141,6 +142,34 @@ impl Tailscale {
             return Err(TailscaleError::ServiceUnreachable(message));
         }
         Err(TailscaleError::Command { command, stderr: message })
+    }
+}
+
+/// A [`Tailscale`] found on first use, so Pasta copes with Tailscale being
+/// installed after it started.
+#[derive(Debug, Default)]
+pub struct LazyTailscale {
+    found: Mutex<Option<Tailscale>>,
+}
+
+impl LazyTailscale {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with(tailscale: Tailscale) -> Self {
+        Self { found: Mutex::new(Some(tailscale)) }
+    }
+
+    /// The CLI, locating it if it hasn't been found yet.
+    pub fn get(&self) -> Result<Tailscale, TailscaleError> {
+        let mut found = self.found.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(tailscale) = found.as_ref() {
+            return Ok(tailscale.clone());
+        }
+        let tailscale = Tailscale::locate()?;
+        *found = Some(tailscale.clone());
+        Ok(tailscale)
     }
 }
 

@@ -54,7 +54,8 @@ connects out to the peers it discovers. There is no central server.
 crates/
   pasta-core       domain model, wire protocol, sync engine, adapter traits (no I/O)
   pasta-crypto     sync-chain phrase + key derivation, AEAD, device keys, protected memory
-  pasta-net        Tailscale client (discovery, WhoIs), WebSocket transport, connection manager
+  pasta-net        Tailscale client (discovery, WhoIs), WebSocket transport, connection manager,
+                   and `Node`, which wires the engine to the network
   pasta-clipboard  per-OS clipboard adapters: watch / write / expire
 src-tauri/         the app: wiring, Tauri commands/events, windows, tray, plugins
 src/               React UI
@@ -62,7 +63,8 @@ src/               React UI
 
 Dependency direction: `pasta-core` ← `pasta-crypto` ← `pasta-net` / `pasta-clipboard` ←
 `src-tauri`. `pasta-core` stays free of OS, network and Tauri code so the engine can be
-tested with fake adapters and an in-memory transport (#19).
+tested with fake adapters (`pasta_core::testing`). The integration tests (#19) run real
+`Node`s on loopback with fake clipboards and a static discovery list instead of Tailscale.
 
 ## Data flow: one copy
 
@@ -91,6 +93,48 @@ tested with fake adapters and an in-memory transport (#19).
   whose derived key encrypts every payload; and a one-time _approval_ of each new
   device by an existing member. A tailnet may contain other people's and tagged
   devices, so "being on the tailnet" alone never grants anything.
+
+## Wire protocol (v1)
+
+One JSON envelope per WebSocket text frame, defined in `pasta_core::protocol`
+([ADR 0006](adr/0006-protocol-and-sync.md)):
+
+```json
+{
+  "v": 1,
+  "type": "clip",
+  "msg_id": "9b1c…",
+  "from_device": "3f2a…",
+  "sent_at": 1730000000000,
+  "body": {
+    "item_id": "c0de…",
+    "origin_device": "3f2a…",
+    "origin_app": { "name": "Safari", "id": "com.apple.Safari" },
+    "created_at": 1730000000000,
+    "flavors": { "text/plain": "…", "text/html": "…" },
+    "content_hash": "<sha-256 of the plain text, hex>"
+  }
+}
+```
+
+| Type        | Body                                                                         | Sent                                         |
+| ----------- | ---------------------------------------------------------------------------- | -------------------------------------------- |
+| `hello`     | device id, name, OS, OS version, app version, protocol version, capabilities | by the dialer, first                         |
+| `hello_ack` | same as `hello`                                                              | by the listener, once accepted               |
+| `clip`      | one copied item; `text/plain` required, `text/html` / `text/rtf` optional    | on every local copy                          |
+| `ack`       | `msg_id` of the `clip`                                                       | on receiving a `clip`                        |
+| `ping`      | empty                                                                        | every 10 s                                   |
+| `pong`      | `ping_id`                                                                    | in reply; gives the latency                  |
+| reserved    | `config_update` (#31), `device_approval` (#22), `encrypted` (#21)            | not yet; ignored like any other unknown type |
+
+- **Versioning:** `v` is the major version. A peer with another one is refused with
+  close code 4001; unknown message types within v1 are ignored.
+- **Limits:** 1 MiB per item by default (`max_item_bytes` in the config). Too-big items
+  lose RTF, then HTML, before they're refused. Receivers check size and `content_hash`.
+- **Close codes:** 4001 version, 4002 refused (not a tailnet node, or a device id seen on
+  another node), 4003 duplicate connection, 4004 protocol error, 4005 heartbeat timeout.
+- **Echo prevention:** the engine never broadcasts a copy whose hash matches the item it
+  believes is current, and never relays an item from a peer.
 
 ## Platform matrix
 

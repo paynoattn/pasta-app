@@ -10,3 +10,4 @@ Short records of decisions that shape Pasta, newest last. Copy
 | [0003](0003-transport-and-encryption.md)  | WebSocket over the tailnet + sync-chain E2E             | Accepted |
 | [0004](0004-windows-clipboard-history.md) | Windows: write and expire items in Win+V history        | Accepted |
 | [0005](0005-macos-pasteboard.md)          | macOS: pasteboard polling, markers, Universal Clipboard | Accepted |
+| [0006](0006-protocol-and-sync.md)         | Wire protocol v1, connection rules, echo prevention     | Proposed |

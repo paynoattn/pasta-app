@@ -7,18 +7,14 @@
 //!
 //! See `docs/ARCHITECTURE.md`.
 
-/// Version of the peer-to-peer wire protocol this build speaks.
-///
-/// Bumped on breaking changes; peers with a different major version refuse
-/// the handshake.
-pub const PROTOCOL_VERSION: u16 = 1;
+pub mod clip;
+pub mod clipboard;
+pub mod config;
+pub mod device;
+pub mod engine;
+pub mod history;
+pub mod protocol;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn protocol_version_starts_at_one() {
-        assert_eq!(PROTOCOL_VERSION, 1);
-    }
-}
+pub use protocol::PROTOCOL_VERSION;

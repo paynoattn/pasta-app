@@ -11,3 +11,6 @@ Short records of decisions that shape Pasta, newest last. Copy
 | [0004](0004-windows-clipboard-history.md) | Windows: write and expire items in Win+V history        | Accepted |
 | [0005](0005-macos-pasteboard.md)          | macOS: pasteboard polling, markers, Universal Clipboard | Accepted |
 | [0006](0006-protocol-and-sync.md)         | Wire protocol v1, connection rules, echo prevention     | Proposed |
+| [0007](0007-sync-chain-and-encryption.md) | Sync chain, E2E encryption, device approval (v2)        | Accepted |
+| [0008](0008-secrets-and-local-storage.md) | Keychain secrets, encrypted store, protected memory     | Accepted |
+| [0009](0009-no-tls-over-tailscale.md)     | No TLS (`tailscale cert`) on top of WireGuard and E2E   | Accepted |

@@ -23,7 +23,7 @@ fn sent_count(events: &[NodeEvent]) -> usize {
 async fn copies_reach_the_other_peer() {
     let a = Peer::start("a").await;
     let b = Peer::start("b").await;
-    mesh(&[&a, &b]);
+    mesh(&[&a, &b]).await;
     a.wait_connected(1).await;
     b.wait_connected(1).await;
 
@@ -48,7 +48,7 @@ async fn copies_reach_the_other_peer() {
 async fn alternating_copies_arrive_exactly_once_without_ping_pong() {
     let mut a = Peer::start("a").await;
     let mut b = Peer::start("b").await;
-    mesh(&[&a, &b]);
+    mesh(&[&a, &b]).await;
     a.wait_connected(1).await;
     b.wait_connected(1).await;
 
@@ -79,7 +79,7 @@ async fn three_peers_each_get_a_copy_once() {
     let a = Peer::start("a").await;
     let b = Peer::start("b").await;
     let c = Peer::start("c").await;
-    mesh(&[&a, &b, &c]);
+    mesh(&[&a, &b, &c]).await;
     for peer in [&a, &b, &c] {
         peer.wait_connected(2).await;
     }
@@ -96,7 +96,7 @@ async fn three_peers_each_get_a_copy_once() {
 async fn simultaneous_dials_settle_on_one_connection() {
     let mut a = Peer::start("a").await;
     let mut b = Peer::start("b").await;
-    mesh(&[&a, &b]);
+    mesh(&[&a, &b]).await;
     a.wait_connected(1).await;
     b.wait_connected(1).await;
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -115,7 +115,7 @@ async fn simultaneous_dials_settle_on_one_connection() {
 async fn reconnects_after_a_peer_restarts() {
     let a = Peer::start("a").await;
     let mut b = Peer::start("b").await;
-    mesh(&[&a, &b]);
+    mesh(&[&a, &b]).await;
     a.wait_connected(1).await;
 
     let id = b.id();
@@ -124,7 +124,7 @@ async fn reconnects_after_a_peer_restarts() {
 
     // Same device, new process and port.
     let b = PeerBuilder::new("b").device_id(id).start().await;
-    mesh(&[&a, &b]);
+    mesh(&[&a, &b]).await;
     a.wait_connected(1).await;
     b.wait_connected(1).await;
     a.clipboard.copy("after restart");
@@ -136,7 +136,7 @@ async fn a_peer_dropping_mid_send_does_not_affect_the_others() {
     let a = Peer::start("a").await;
     let b = Peer::start("b").await;
     let mut c = Peer::start("c").await;
-    mesh(&[&a, &b, &c]);
+    mesh(&[&a, &b, &c]).await;
     a.wait_connected(2).await;
 
     a.clipboard.copy("first");
@@ -151,7 +151,7 @@ async fn a_peer_dropping_mid_send_does_not_affect_the_others() {
 async fn oversize_items_are_not_sent_or_applied() {
     let mut a = Peer::start("a").await;
     let b = PeerBuilder::new("b").max_item_bytes(1024).start().await;
-    mesh(&[&a, &b]);
+    mesh(&[&a, &b]).await;
     a.wait_connected(1).await;
     b.wait_connected(1).await;
 
@@ -181,9 +181,10 @@ async fn refuses_other_protocol_versions() {
         os_version: "1".into(),
         app_version: "9.0.0".into(),
     };
+    let hello = Hello::new(&device, pasta_core::wire::Bytes([1; 32]), pasta_core::wire::Bytes([2; 32]));
     let mut hello: serde_json::Value =
-        serde_json::from_str(&Envelope::new(device.id, Message::Hello(Hello::from_device(&device))).encode()).unwrap();
-    hello["v"] = 2.into();
+        serde_json::from_str(&Envelope::new(device.id, Message::Hello(hello)).encode()).unwrap();
+    hello["v"] = 3.into();
     ws.send(WsMessage::text(hello.to_string())).await.unwrap();
 
     let reply = within(ws.next()).await.unwrap().unwrap();
@@ -200,7 +201,7 @@ async fn refuses_a_device_id_seen_on_another_node() {
     // A remembers B's device id from a different tailnet node.
     let mut a = PeerBuilder::new("a").known(b.id(), "nSomewhereElseCNTRL").start().await;
     assert_ne!(LOOPBACK_NODE, "nSomewhereElseCNTRL");
-    mesh(&[&a, &b]);
+    mesh(&[&a, &b]).await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     let events = a.drain_events();
     assert!(events.iter().any(|event| matches!(event, NodeEvent::Net(NetEvent::Rejected { .. }))));

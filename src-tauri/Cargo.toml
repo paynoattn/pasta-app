@@ -33,9 +33,14 @@ tracing-appender = "0.2"
 tracing-subscriber.workspace = true
 pasta-core.workspace = true
 pasta-clipboard.workspace = true
+pasta-crypto.workspace = true
 pasta-net.workspace = true
+pasta-store.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
+rusqlite.workspace = true
 tempfile.workspace = true
 
 [lints]

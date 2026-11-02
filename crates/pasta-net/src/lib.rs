@@ -13,4 +13,5 @@ pub mod network;
 pub mod node;
 pub mod tailscale;
 pub mod transport;
+pub mod trust;
 pub mod verify;

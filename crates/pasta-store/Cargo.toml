@@ -1,0 +1,38 @@
+[package]
+name = "pasta-store"
+description = "Pasta secret storage (OS keyring) and the encrypted local database"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+keyring-core = "1"
+pasta-core.workspace = true
+pasta-crypto.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+
+# The native credential store per OS (the stores the `keyring` crate's v1 mode
+# uses), built per attempt so a keychain that is locked at login can be retried.
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-native-keyring-store = "1"
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

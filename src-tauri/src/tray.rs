@@ -16,6 +16,8 @@ pub struct TrayView {
     pub warnings: Vec<String>,
     pub peers: Vec<String>,
     pub paused: bool,
+    /// The keychain couldn't be opened: offer to try again now.
+    pub retry: bool,
 }
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
@@ -68,6 +70,10 @@ fn menu(app: &AppHandle, view: &TrayView) -> tauri::Result<Menu<Wry>> {
         items.push(Box::new(label(peer)?));
     }
     items.push(Box::new(PredefinedMenuItem::separator(app)?));
+    if view.retry {
+        items.push(Box::new(MenuItem::with_id(app, "retry", "Try the keychain again", true, None::<&str>)?));
+    }
+    items.push(Box::new(MenuItem::with_id(app, "chain", "Sync chain…", true, None::<&str>)?));
     items.push(Box::new(CheckMenuItem::with_id(app, "pause", "Pause syncing", true, view.paused, None::<&str>)?));
     items.push(Box::new(MenuItem::with_id(app, "diagnostics", "Copy diagnostics", true, None::<&str>)?));
     items.push(Box::new(MenuItem::with_id(app, "logs", "Open log folder", true, None::<&str>)?));
@@ -97,7 +103,9 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
                 open_folder(&dir);
             }
         }
-        "about" => {
+        "retry" => app.state::<AppState>().retry.notify_one(),
+        // The settings window holds the developer chain panel until #43 / #46.
+        "about" | "chain" => {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();

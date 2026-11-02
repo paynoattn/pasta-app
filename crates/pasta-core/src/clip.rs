@@ -4,11 +4,17 @@
 //! hashes, so these types are safe to put in log lines.
 
 use std::fmt;
+use std::sync::{OnceLock, RwLock};
 
+use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
+use zeroize::Zeroize;
 
 /// The text formats of one clipboard item. `text/plain` is always present.
+///
+/// The text is wiped from memory when the value is dropped (#24). Copies the
+/// OS, serde or the allocator made along the way are out of reach.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Flavors {
     #[serde(rename = "text/plain")]
@@ -58,6 +64,14 @@ impl Flavors {
     }
 }
 
+impl Drop for Flavors {
+    fn drop(&mut self) {
+        self.plain.zeroize();
+        self.html.zeroize();
+        self.rtf.zeroize();
+    }
+}
+
 impl fmt::Debug for Flavors {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Flavors")
@@ -77,9 +91,14 @@ impl ContentHash {
         self.0.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// First 12 hex digits, for log lines.
+    /// 12 hex digits for log lines: a keyed hash of the content hash, so short
+    /// secrets can't be brute-forced from logs. Devices in the same chain use
+    /// the same key (see [`set_log_key`]), so their logs still line up.
     pub fn short(&self) -> String {
-        self.0[..6].iter().map(|b| format!("{b:02x}")).collect()
+        let key = current_log_key();
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(&key).expect("HMAC takes any key length");
+        mac.update(&self.0);
+        mac.finalize().into_bytes()[..6].iter().map(|b| format!("{b:02x}")).collect()
     }
 
     pub fn from_hex(hex: &str) -> Option<Self> {
@@ -117,6 +136,31 @@ impl<'de> Deserialize<'de> for ContentHash {
         let hex = String::deserialize(deserializer)?;
         Self::from_hex(&hex).ok_or_else(|| serde::de::Error::custom("content_hash must be 64 hex digits"))
     }
+}
+
+static LOG_KEY: RwLock<Option<[u8; 32]>> = RwLock::new(None);
+
+/// Sets the key for the hashes in log lines: the chain's log key, or `None`
+/// for a random one per process (when this device isn't in a chain).
+pub fn set_log_key(key: Option<&[u8; 32]>) {
+    let mut current = LOG_KEY.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(old) = current.as_mut() {
+        old.zeroize();
+    }
+    *current = key.copied();
+}
+
+fn current_log_key() -> [u8; 32] {
+    static FALLBACK: OnceLock<[u8; 32]> = OnceLock::new();
+    if let Some(key) = *LOG_KEY.read().unwrap_or_else(std::sync::PoisonError::into_inner) {
+        return key;
+    }
+    *FALLBACK.get_or_init(|| {
+        let mut key = [0u8; 32];
+        key[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
+        key[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
+        key
+    })
 }
 
 /// The app an item was copied from, for the panel's source icon and for

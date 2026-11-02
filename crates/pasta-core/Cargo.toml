@@ -13,6 +13,8 @@ publish.workspace = true
 testing = []
 
 [dependencies]
+base64.workspace = true
+hmac.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -21,6 +23,7 @@ thiserror.workspace = true
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 tracing.workspace = true
 uuid.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

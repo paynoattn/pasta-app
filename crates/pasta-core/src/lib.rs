@@ -7,6 +7,7 @@
 //!
 //! See `docs/ARCHITECTURE.md`.
 
+pub mod chain;
 pub mod clip;
 pub mod clipboard;
 pub mod config;
@@ -16,5 +17,6 @@ pub mod history;
 pub mod protocol;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
+pub mod wire;
 
 pub use protocol::PROTOCOL_VERSION;

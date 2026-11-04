@@ -119,6 +119,26 @@ cargo run -p pasta-app --features tauri/custom-protocol
 - On macOS, launch the app from Finder or with `open` rather than from an SSH session, so
   it runs in your login session with the menu bar and pasteboard.
 
+### macOS: stop the keychain prompt on every rebuild
+
+Debug builds have an ad-hoc signature that changes with every build, and the keychain
+trusts an app by its signature, so each rebuild asks for the login password again
+("Always Allow" lasts until the next build). Release builds signed with a Developer ID
+keep the same identity across builds and don't have this problem.
+
+To give dev builds a stable identity, once per Mac:
+
+1. Keychain Access › Certificate Assistant › **Create a Certificate…**: name `Pasta Dev`,
+   identity type **Self-Signed Root**, certificate type **Code Signing**.
+2. Add `export PASTA_CODESIGN_IDENTITY="Pasta Dev"` to your shell profile and open a new
+   terminal.
+3. Run `pnpm tauri dev`. The first time, allow `codesign` to use the key, then answer
+   Pasta's keychain prompt with **Always Allow**. Later rebuilds don't prompt.
+
+`.cargo/config.toml` runs `scripts/macos-dev-runner.sh` for every `cargo run` on macOS. It
+re-signs only the `pasta-app` binary, and only when `PASTA_CODESIGN_IDENTITY` is set; if
+signing fails it warns and runs the app unsigned.
+
 ### Windows Firewall
 
 Pasta listens on the Tailscale addresses only. If Windows asks whether to allow Pasta on

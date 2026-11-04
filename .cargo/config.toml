@@ -1,0 +1,4 @@
+# Signs the debug app with a stable certificate before it runs, if one is set up;
+# otherwise a no-op. See scripts/macos-dev-runner.sh and docs/development.md.
+[target.'cfg(target_os = "macos")']
+runner = "scripts/macos-dev-runner.sh"

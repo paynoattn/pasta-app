@@ -13,6 +13,7 @@ const peer: Peer = {
   connected: true,
   latencyMs: 12,
   lastSeen: 1730000000000,
+  trust: "member",
 };
 
 describe("getAppInfo", () => {

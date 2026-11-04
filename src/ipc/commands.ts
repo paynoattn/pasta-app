@@ -20,6 +20,8 @@ export interface Peer {
   latencyMs: number | null;
   /** Milliseconds since the Unix epoch. */
   lastSeen: number;
+  /** `member`, `pending` (in the chain, not approved) or `unknown` (this device waits for approval). */
+  trust: "member" | "pending" | "unknown";
 }
 
 /** Known devices, connected first. */

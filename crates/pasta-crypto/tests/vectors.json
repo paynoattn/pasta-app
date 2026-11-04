@@ -1,0 +1,19 @@
+{
+  "_comment": "Test vectors for pasta-crypto. 'chain' pins Pasta's own key derivation (HKDF-SHA256 labels in src/keys.rs) for the secret 0x7f * 32, so builds that disagree are caught (cross-checked against Python hmac/hashlib HKDF). 'aead' is the XChaCha20-Poly1305 vector from draft-irtf-cfrg-xchacha appendix A.3.1 (ciphertext followed by the tag).",
+  "chain": {
+    "secret": "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+    "words": "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title",
+    "chain_id": "f5d982c3ad2538007e8484fdc7f50ef2",
+    "fingerprint": "YQCR-5GXD",
+    "payload_key": "6b7accb741c598d6f44d250531e120e8b5d5ab0fcfe4476a8d5f52db007d8bbe",
+    "auth_key": "9fe888a9fee3145e4d1ac5a396014dc4b4a864f2cd06befa135bfa1f641108b6",
+    "log_key": "3de6e5767876c241fa969e9ca71f68ba6a9a870365d5e9a08c573e72ccda94c5"
+  },
+  "aead": {
+    "key": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+    "nonce": "404142434445464748494a4b4c4d4e4f5051525354555657",
+    "aad": "50515253c0c1c2c3c4c5c6c7",
+    "plaintext": "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.",
+    "ciphertext": "bd6d179d3e83d43b9576579493c0e939572a1700252bfaccbed2902c21396cbb731c7f1b0b4aa6440bf3a82f4eda7e39ae64c6708c54c216cb96b72e1213b4522f8c9ba40db5d945b11b69b982c1bb9e3f3fac2bc369488f76b2383565d3fff921f9664c97637da9768812f615c68b13b52ec0875924c1c7987947deafd8780acf49"
+  }
+}

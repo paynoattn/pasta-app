@@ -53,16 +53,19 @@ connects out to the peers it discovers. There is no central server.
 ```
 crates/
   pasta-core       domain model, wire protocol, sync engine, adapter traits (no I/O)
-  pasta-crypto     sync-chain phrase + key derivation, AEAD, device keys, protected memory
-  pasta-net        Tailscale client (discovery, WhoIs), WebSocket transport, connection manager,
-                   and `Node`, which wires the engine to the network
+  pasta-crypto     sync-chain words + key derivation, AEAD + replay guard, device keys,
+                   signed member list, protected memory, process hardening
+  pasta-net        Tailscale client (discovery, WhoIs), WebSocket transport, connection manager
+                   (signed handshake, chain + membership gating), and `Node`, which wires the
+                   engine to the network
   pasta-clipboard  per-OS clipboard adapters: watch / write / expire
+  pasta-store      OS keychain entry for the device's secrets, encrypted SQLite store
 src-tauri/         the app: wiring, Tauri commands/events, windows, tray, plugins
 src/               React UI
 ```
 
-Dependency direction: `pasta-core` ← `pasta-crypto` ← `pasta-net` / `pasta-clipboard` ←
-`src-tauri`. `pasta-core` stays free of OS, network and Tauri code so the engine can be
+Dependency direction: `pasta-core` ← `pasta-crypto` ← `pasta-net` / `pasta-store` /
+`pasta-clipboard` ← `src-tauri`. `pasta-core` stays free of OS, network and Tauri code so the engine can be
 tested with fake adapters (`pasta_core::testing`). The integration tests (#19) run real
 `Node`s on loopback with fake clipboards and a static discovery list instead of Tailscale.
 
@@ -92,20 +95,35 @@ tested with fake adapters (`pasta_core::testing`). The integration tests (#19) r
 - **Trust has three layers**: WireGuard (Tailscale) on the wire; a 24-word _sync chain_
   whose derived key encrypts every payload; and a one-time _approval_ of each new
   device by an existing member. A tailnet may contain other people's and tagged
-  devices, so "being on the tailnet" alone never grants anything.
+  devices, so "being on the tailnet" alone never grants anything. A device that isn't
+  in a chain syncs nothing ([ADR 0007](adr/0007-sync-chain-and-encryption.md)).
+- **At rest**, the device's keys and the chain secret are in the OS keychain and
+  everything else in an encrypted SQLite store ([ADR 0008](adr/0008-secrets-and-local-storage.md)).
+  What is protected from whom, and the limits, are in [SECURITY-MODEL.md](SECURITY-MODEL.md).
 
-## Wire protocol (v1)
+## Wire protocol (v2)
 
 One JSON envelope per WebSocket text frame, defined in `pasta_core::protocol`
-([ADR 0006](adr/0006-protocol-and-sync.md)):
+([ADR 0006](adr/0006-protocol-and-sync.md), encryption and approval in
+[ADR 0007](adr/0007-sync-chain-and-encryption.md)):
 
 ```json
 {
-  "v": 1,
-  "type": "clip",
+  "v": 2,
+  "type": "encrypted",
   "msg_id": "9b1c…",
   "from_device": "3f2a…",
   "sent_at": 1730000000000,
+  "body": { "nonce": "<24 bytes, base64url>", "ciphertext": "<base64url>" }
+}
+```
+
+The ciphertext is XChaCha20-Poly1305 under the chain key, with the envelope header as
+associated data, over an inner message:
+
+```json
+{
+  "type": "clip",
   "body": {
     "item_id": "c0de…",
     "origin_device": "3f2a…",
@@ -117,22 +135,26 @@ One JSON envelope per WebSocket text frame, defined in `pasta_core::protocol`
 }
 ```
 
-| Type        | Body                                                                         | Sent                                         |
-| ----------- | ---------------------------------------------------------------------------- | -------------------------------------------- |
-| `hello`     | device id, name, OS, OS version, app version, protocol version, capabilities | by the dialer, first                         |
-| `hello_ack` | same as `hello`                                                              | by the listener, once accepted               |
-| `clip`      | one copied item; `text/plain` required, `text/html` / `text/rtf` optional    | on every local copy                          |
-| `ack`       | `msg_id` of the `clip`                                                       | on receiving a `clip`                        |
-| `ping`      | empty                                                                        | every 10 s                                   |
-| `pong`      | `ping_id`                                                                    | in reply; gives the latency                  |
-| reserved    | `config_update` (#31), `device_approval` (#22), `encrypted` (#21)            | not yet; ignored like any other unknown type |
+| Type        | Body                                                                        | Sent                                       |
+| ----------- | --------------------------------------------------------------------------- | ------------------------------------------ |
+| `hello`     | device id, name, OS, versions, capabilities, device key, nonce, chain proof | by the dialer, first                       |
+| `hello_ack` | same as `hello`, plus the listener's signature over both hellos             | by the listener, once accepted             |
+| `auth`      | the dialer's signature over both hellos                                     | by the dialer, completing the handshake    |
+| `encrypted` | sealed inner `clip` (one copied item) or `members` (the signed member list) | items on every local copy; lists on change |
+| `ack`       | `msg_id` of the `encrypted` message                                         | on accepting one                           |
+| `ping`      | empty                                                                       | every 10 s                                 |
+| `pong`      | `ping_id`                                                                   | in reply; gives the latency                |
+| reserved    | `config_update` (#31), which will travel inside `encrypted`                 | ignored like any other unknown type        |
 
 - **Versioning:** `v` is the major version. A peer with another one is refused with
-  close code 4001; unknown message types within v1 are ignored.
+  close code 4001; unknown message types within v2 are ignored. A plaintext `clip` (v1)
+  is dropped.
 - **Limits:** 1 MiB per item by default (`max_item_bytes` in the config). Too-big items
-  lose RTF, then HTML, before they're refused. Receivers check size and `content_hash`.
+  lose RTF, then HTML, before they're refused. Receivers check size and `content_hash`
+  after decrypting.
 - **Close codes:** 4001 version, 4002 refused (not a tailnet node, or a device id seen on
-  another node), 4003 duplicate connection, 4004 protocol error, 4005 heartbeat timeout.
+  another node), 4003 duplicate connection, 4004 protocol error, 4005 heartbeat timeout,
+  4006 not in this sync chain, 4007 not trusted (bad signature, wrong key, declined).
 - **Echo prevention:** the engine never broadcasts a copy whose hash matches the item it
   believes is current, and never relays an item from a peer.
 

@@ -33,3 +33,66 @@ body {
 .settings__meta {
   color: #636366;
 }
+
+.chain {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #d2d2d7;
+}
+
+.chain h2 {
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+
+.chain h3 {
+  margin: 16px 0 4px;
+  font-size: 14px;
+}
+
+.chain__note {
+  margin-top: 0;
+  color: #636366;
+}
+
+.chain__error {
+  color: #d70015;
+}
+
+.chain__join {
+  display: block;
+  margin: 16px 0 8px;
+}
+
+.chain__join textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  font-family: ui-monospace, monospace;
+}
+
+.chain__warning {
+  margin: 0 0 8px;
+}
+
+.chain__words {
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.chain__code {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+  user-select: text;
+}
+
+@media (prefers-color-scheme: dark) {
+  .chain {
+    border-top-color: #3a3a3c;
+  }
+
+  .chain__words {
+    background: #2c2c2e;
+  }
+}

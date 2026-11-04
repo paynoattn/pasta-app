@@ -46,6 +46,12 @@ pub fn report(runtime: &Runtime) -> String {
     if let Some(reason) = &clipboard.unsupported {
         let _ = writeln!(out, "Clipboard: {reason}");
     }
+    let chain = match &runtime.chain_status().chain {
+        None => "none".to_owned(),
+        Some(summary) if !summary.approved => "joined, waiting for approval".to_owned(),
+        Some(summary) => format!("member · {} members · {} pending", summary.members.len(), summary.pending.len()),
+    };
+    let _ = writeln!(out, "Sync chain: {chain}");
     let connected = peers.iter().filter(|peer| peer.connected).count();
     let _ = writeln!(out, "Peers: {} known, {connected} connected", peers.len());
     for peer in &peers {
@@ -54,12 +60,12 @@ pub fn report(runtime: &Runtime) -> String {
             (true, None) => "connected".to_owned(),
             (false, _) => format!("offline, last seen {}", ago(now.saturating_sub(peer.last_seen.0))),
         };
-        let _ = writeln!(out, "  {} {}: {state}", short_id(&peer.device_id.to_string()), peer.os);
+        let _ = writeln!(out, "  {} {} ({:?}): {state}", short_id(&peer.device_id.to_string()), peer.os, peer.trust);
     }
     if cfg!(target_os = "macos") {
         let _ = writeln!(out, "History items: {}", runtime.history_len());
     }
-    let _ = writeln!(out, "Config: {}", home_relative(runtime.config.path()));
+    let _ = writeln!(out, "Store: {}", home_relative(runtime.config.path()));
     let _ = writeln!(out, "Logs: {}", home_relative(&runtime.log_dir));
     out
 }

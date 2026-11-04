@@ -30,6 +30,10 @@ pub mod close {
     pub const PROTOCOL_ERROR: u16 = 4004;
     /// No traffic within the heartbeat timeout.
     pub const TIMED_OUT: u16 = 4005;
+    /// Not in the same sync chain (or this side isn't in one at all).
+    pub const CHAIN_MISMATCH: u16 = 4006;
+    /// The handshake signature or device key doesn't check out, or the device was declined.
+    pub const NOT_TRUSTED: u16 = 4007;
 }
 
 #[derive(Debug, thiserror::Error)]

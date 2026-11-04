@@ -1,7 +1,7 @@
 //! Device settings and known peers (#8).
 //!
-//! This is only the model. The app keeps it as JSON in its data dir (plain in
-//! M1, moved into the encrypted store in #25).
+//! This is only the model. The app keeps it in its encrypted store (`pasta.db`,
+//! #25); M1 kept it as a plain `config.json`.
 
 use std::collections::BTreeMap;
 

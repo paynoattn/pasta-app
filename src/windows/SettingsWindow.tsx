@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getAppInfo, type AppInfo } from "../ipc/commands";
+import { DevChainPanel } from "./DevChainPanel";
 import "./SettingsWindow.css";
 
 /** Placeholder until the settings shell lands (#29). */
@@ -21,6 +22,7 @@ export function SettingsWindow() {
           Version {info.version} · protocol v{info.protocolVersion}
         </p>
       )}
+      <DevChainPanel />
     </main>
   );
 }

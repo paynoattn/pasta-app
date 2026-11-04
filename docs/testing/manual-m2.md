@@ -29,9 +29,9 @@ can't run (e.g. no Linux clipboard adapter before M4, or a dev build already on 
       B says "Waiting for approval"; A lists B under "Waiting to join" with its Tailscale
       name and the key fingerprint B shows.
 - [ ] Before approval, copies on either side don't reach the other.
-- [ ] Approve on A: B shows "Approved by" A with A's key; nothing syncs until you accept
-      it on B after comparing the key with A's panel. Then both directions sync within ~1 s.
-- [ ] A third device C joins and is approved on **B** (and accepts): A learns it without
+- [ ] Approve on A after comparing B's key: B becomes a member by itself, with nothing
+      to confirm on B. Then both directions sync within ~1 s.
+- [ ] A third device C joins and is approved on **B**: A learns it without
       doing anything.
 - [ ] A device with **other** words (or none) never appears and gets nothing.
 - [ ] Remove C on A: C's panel goes back to "not in a chain"; nothing reaches C any more,

@@ -40,7 +40,7 @@ use pasta_core::device::{DeviceId, DeviceInfo, UnixMillis};
 use pasta_core::engine::Outbound;
 use pasta_core::protocol::{Ack, Auth, Clip, DecodeError, Envelope, Hello, Inner, Message, Ping, Pong, Role};
 use pasta_crypto::DeviceKey;
-use pasta_crypto::membership::{Membership, Root};
+use pasta_crypto::membership::Root;
 use tokio::sync::{Notify, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
@@ -49,7 +49,7 @@ use uuid::Uuid;
 
 use crate::discovery::{Candidate, Discovery, DiscoverySnapshot, TailnetState};
 use crate::transport::{self, TransportError, WsStream, close};
-use crate::trust::{ApprovalOffer, ChainMatch, ChainSetup, ChainStatus, PeerTrust, PendingDevice, Trust};
+use crate::trust::{ChainMatch, ChainSetup, ChainStatus, PeerTrust, PendingDevice, Trust};
 use crate::verify::{NodeIdentity, Verifier};
 
 /// Intervals and limits. The defaults suit a real tailnet; tests shorten them.
@@ -183,7 +183,7 @@ impl Network {
         let refresh = Arc::new(Notify::new());
         let me = options.device.id;
         let trust = Arc::new(Trust::new(me, options.device_key, options.chain));
-        let (chain_tx, chain_rx) = watch::channel(trust.summary(Vec::new(), Vec::new()));
+        let (chain_tx, chain_rx) = watch::channel(trust.summary(Vec::new()));
         let ctx = Arc::new(Ctx {
             me,
             device: options.device,
@@ -209,7 +209,6 @@ impl Network {
             declined: HashSet::new(),
             told_removed: HashSet::new(),
             list_checked: HashMap::new(),
-            offers: BTreeMap::new(),
             senders: Arc::clone(&senders),
             status_tx,
             peers_tx,
@@ -259,13 +258,6 @@ impl Network {
     pub async fn approve(&self, device: DeviceId, key: &str) -> Result<(), String> {
         let key = key.to_owned();
         self.command(|done| Command::Approve(device, key, done)).await.unwrap_or_else(|| Err(stopped()))
-    }
-
-    /// While waiting for approval: accepts the approval from the member whose
-    /// key fingerprint the user compared, and starts syncing.
-    pub async fn accept(&self, approver_key: &str) -> Result<(), String> {
-        let key = approver_key.to_owned();
-        self.command(|done| Command::Accept(key, done)).await.unwrap_or_else(|| Err(stopped()))
     }
 
     /// Turns a pending device away until restart.
@@ -354,8 +346,6 @@ enum Command {
     SetChain(Option<ChainSetup>, oneshot::Sender<Result<(), String>>),
     /// The device and the key fingerprint the user compared.
     Approve(DeviceId, String, oneshot::Sender<Result<(), String>>),
-    /// Accept the approval from the member with this key fingerprint.
-    Accept(String, oneshot::Sender<Result<(), String>>),
     Decline(DeviceId, oneshot::Sender<Result<(), String>>),
     Remove(DeviceId, oneshot::Sender<Result<(), String>>),
     Leave(oneshot::Sender<Result<(), String>>),
@@ -454,9 +444,6 @@ struct Actor {
     told_removed: HashSet<DeviceId>,
     /// When a member list from a non-member was last checked, by verified Tailscale node.
     list_checked: HashMap<String, VecDeque<Instant>>,
-    /// While waiting for approval: approvals the user hasn't confirmed, by root.
-    /// One slot per verified Tailscale node, so one node can't crowd out the real approver.
-    offers: BTreeMap<String, (ApprovalOffer, Membership)>,
     senders: Senders,
     status_tx: watch::Sender<NetStatus>,
     peers_tx: watch::Sender<Vec<PeerSnapshot>>,
@@ -784,7 +771,7 @@ impl Actor {
             return;
         }
         if self.ctx.trust.waiting() {
-            return self.on_offer(from, list);
+            return self.on_approval(from, list);
         }
         let was_member = self.ctx.trust.am_member();
         let outcome = self.ctx.trust.merge(list);
@@ -817,37 +804,20 @@ impl Actor {
         true
     }
 
-    /// A list that would make this waiting device a member: shown to the user
-    /// as an offer, adopted only when they accept it.
-    fn on_offer(&mut self, from: DeviceId, list: &MemberList) {
+    /// A list that would make this waiting device a member: adopted at once.
+    /// Knowing the words is the approval on this side (ADR 0010); the member
+    /// that approved this device was the user's choice on that side.
+    fn on_approval(&mut self, from: DeviceId, list: &MemberList) {
         let Some(membership) = self.ctx.trust.offer(list) else {
             tracing::debug!(peer = %from, "a member list that doesn't approve this device");
             return;
         };
-        let Some(root) = membership.pinned_root() else { return };
-        let Some(node) = self.conns.get(&from).map(|peer| peer.identity.node_id.clone()) else { return };
-        if self.offers.len() >= MAX_OFFERS && !self.offers.contains_key(&node) {
-            tracing::debug!(peer = %from, "ignoring an approval: too many offers waiting");
+        let approver = membership.record(self.ctx.me).map(|mine| mine.approved_by);
+        if !self.ctx.trust.adopt(membership) {
             return;
         }
-        let approver = membership.record(self.ctx.me).map(|mine| mine.approved_by);
-        let Some(approver) = approver.and_then(|id| membership.record(id)) else { return };
-        let offer = ApprovalOffer {
-            root: root.0,
-            approver: approver.device_id,
-            approver_name: approver.name.clone(),
-            approver_os: approver.os.clone(),
-            approver_key: approver.device_key,
-            via_node_name: self.conns.get(&from).map(|peer| peer.identity.name.clone()).unwrap_or_default(),
-        };
-        tracing::info!(
-            peer = %from,
-            approver = %offer.approver,
-            key = %pasta_crypto::keys::short(&offer.approver_key),
-            "a member approved this device; waiting for the user to confirm"
-        );
-        self.offers.insert(node, (offer, membership));
-        self.publish_chain();
+        tracing::info!(peer = %from, approver = ?approver, "approved by a member; syncing with the chain");
+        self.members_changed();
     }
 
     /// Persists, tells every member (and removed devices still connected), refreshes the UI.
@@ -887,10 +857,6 @@ impl Actor {
             }
             Command::Approve(device, key, done) => {
                 let result = self.approve(device, &key);
-                let _ = done.send(result);
-            }
-            Command::Accept(approver_key, done) => {
-                let result = self.accept(&approver_key);
                 let _ = done.send(result);
             }
             Command::Decline(device, done) => {
@@ -954,31 +920,10 @@ impl Actor {
         Ok(())
     }
 
-    /// Adopts the offered membership whose approver has `approver_key`.
-    fn accept(&mut self, approver_key: &str) -> Result<(), String> {
-        let Some(node) = self
-            .offers
-            .iter()
-            .find(|(_, (offer, _))| key_matches(&offer.approver_key, approver_key))
-            .map(|(node, _)| node.clone())
-        else {
-            return Err("no approval from a device with that key".into());
-        };
-        let Some((offer, membership)) = self.offers.remove(&node) else { return Err("no such approval".into()) };
-        if !self.ctx.trust.adopt(membership) {
-            return Err("this device isn't waiting for approval".into());
-        }
-        self.offers.clear();
-        tracing::info!(approver = %offer.approver, "accepted the approval; syncing with the chain");
-        self.members_changed();
-        Ok(())
-    }
-
     /// Joins, switches or leaves the chain: all connections are redone.
     fn set_chain(&mut self, chain: Option<ChainSetup>) {
         self.ctx.trust.set_chain(chain);
         self.declined.clear();
-        self.offers.clear();
         self.told_removed.clear();
         let ids: Vec<DeviceId> = self.conns.keys().copied().collect();
         for id in ids {
@@ -1016,8 +961,7 @@ impl Actor {
 
     fn publish_chain(&self) {
         self.chain_tx.send_if_modified(|current| {
-            let offers = self.offers.values().map(|(offer, _)| offer.clone()).collect();
-            let next = self.ctx.trust.summary(self.pending(), offers);
+            let next = self.ctx.trust.summary(self.pending());
             if *current == next {
                 return false;
             }
@@ -1143,8 +1087,6 @@ impl Actor {
 const NON_MEMBER_LIST_INTERVAL: Duration = Duration::from_secs(10);
 /// How many lists from non-members one Tailscale node gets checked per interval.
 const NON_MEMBER_LISTS_PER_INTERVAL: usize = 4;
-/// Most approvals a waiting device keeps for the user to choose from.
-const MAX_OFFERS: usize = 8;
 /// Most connected devices that aren't members (pending, or in another state).
 const MAX_NON_MEMBERS: usize = 32;
 /// The same, from one Tailscale node.

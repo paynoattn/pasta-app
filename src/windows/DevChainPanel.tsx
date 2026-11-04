@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  acceptApproval,
   approveDevice,
   chainWords,
   createChain,
@@ -108,34 +107,10 @@ export function DevChainPanel() {
       )}
 
       {chain.state === "waiting" && (
-        <>
-          <p>
-            Waiting for approval. On a device already in the chain, approve the device showing key{" "}
-            <code>{chain.thisKey}</code>.
-          </p>
-          {chain.offers.length > 0 && (
-            <>
-              <h3>Approved by</h3>
-              <p className="chain__note">
-                Accept only if the key matches the one that device shows as its own.
-              </p>
-              <ul>
-                {chain.offers.map((offer) => (
-                  <li key={`${offer.approverKey}-${offer.viaNodeName}-${offer.approverName}`}>
-                    {offer.approverName} ({offer.approverOs}, Tailscale “{offer.viaNodeName}”, key{" "}
-                    <code>{offer.approverKey}</code>){" "}
-                    <button
-                      disabled={busy}
-                      onClick={() => void run(() => acceptApproval(offer.approverKey))}
-                    >
-                      Accept
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </>
+        <p>
+          Waiting for approval. On a device already in the chain, approve the device showing key{" "}
+          <code>{chain.thisKey}</code>. Syncing starts by itself once it's approved.
+        </p>
       )}
 
       {chain.state === "member" && (

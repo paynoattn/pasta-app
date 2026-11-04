@@ -65,19 +65,6 @@ pub struct ChainView {
     pub this_key: String,
     pub members: Vec<MemberView>,
     pub pending: Vec<PendingView>,
-    /// While waiting: members that approved this device, for the user to confirm.
-    pub offers: Vec<OfferView>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OfferView {
-    pub approver_name: String,
-    pub approver_os: String,
-    /// 16 hex digits of the approver's key; that device shows the same as "this device's key".
-    pub approver_key: String,
-    /// The Tailscale device the approval came from.
-    pub via_node_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -107,14 +94,7 @@ impl ChainView {
     pub fn new(status: &ChainStatus, peers: &[PeerSnapshot], me: DeviceId, my_key: &Key32) -> Self {
         let this_key = keys::short(my_key);
         let Some(chain) = &status.chain else {
-            return Self {
-                state: "none",
-                fingerprint: None,
-                this_key,
-                members: Vec::new(),
-                pending: Vec::new(),
-                offers: Vec::new(),
-            };
+            return Self { state: "none", fingerprint: None, this_key, members: Vec::new(), pending: Vec::new() };
         };
         let connected = |id: DeviceId| peers.iter().any(|peer| peer.device_id == id && peer.connected);
         let mut members: Vec<MemberView> = chain
@@ -144,16 +124,6 @@ impl ChainView {
                     node_name: pending.node_name.clone(),
                     key: keys::short(&pending.device_key),
                     was_removed: pending.was_removed,
-                })
-                .collect(),
-            offers: chain
-                .offers
-                .iter()
-                .map(|offer| OfferView {
-                    approver_name: offer.approver_name.clone(),
-                    approver_os: offer.approver_os.clone(),
-                    approver_key: keys::short(&offer.approver_key),
-                    via_node_name: offer.via_node_name.clone(),
                 })
                 .collect(),
         }
@@ -206,11 +176,6 @@ impl Runtime {
     /// `key` is the fingerprint the user compared with the joining device's screen.
     pub async fn approve_device(&self, device: DeviceId, key: &str) -> Result<(), String> {
         self.network.approve(device, key).await
-    }
-
-    /// On a waiting device: accepts the approval from the member with this key fingerprint.
-    pub async fn accept_approval(&self, approver_key: &str) -> Result<(), String> {
-        self.network.accept(approver_key).await
     }
 
     pub async fn decline_device(&self, device: DeviceId) -> Result<(), String> {
@@ -367,7 +332,6 @@ mod tests {
                     node_name: "cachy-desktop".into(),
                     was_removed: false,
                 }],
-                offers: Vec::new(),
             }),
         };
         let view = ChainView::new(&status, &[], me, &key.public());

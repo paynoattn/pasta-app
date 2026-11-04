@@ -294,9 +294,6 @@ impl Peer {
 
     /// Waits until this peer is (or isn't) an approved member.
     pub async fn wait_approved(&self, approved: bool) {
-        if approved {
-            self.accept_offer().await;
-        }
         let mut chain = self.chain_status();
         within(chain.wait_for(|status| status.chain.as_ref().is_some_and(|chain| chain.approved) == approved))
             .await
@@ -306,22 +303,6 @@ impl Peer {
     /// The fingerprint of this device's key, as the approving user compares it.
     pub fn fingerprint(&self) -> String {
         pasta_crypto::keys::short(&self.key.public())
-    }
-
-    /// On a waiting device: waits for an approval offer and accepts it, as the
-    /// user would after comparing the approver's key. A no-op if already approved.
-    pub async fn accept_offer(&self) {
-        let mut chain = self.chain_status();
-        let status =
-            within(chain.wait_for(|status| {
-                status.chain.as_ref().is_some_and(|chain| chain.approved || !chain.offers.is_empty())
-            }))
-            .await
-            .unwrap_or_else(|_| panic!("{} never got an approval offer", self.name))
-            .clone();
-        let Some(chain) = status.chain.filter(|chain| !chain.approved) else { return };
-        let key = pasta_crypto::keys::short(&chain.offers[0].approver_key);
-        self.node().network().accept(&key).await.unwrap();
     }
 
     /// Waits until the clipboard received `count` writes from peers.

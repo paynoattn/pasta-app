@@ -44,23 +44,6 @@ pub struct ChainSummary {
     pub members: Vec<MemberRecord>,
     /// Connected devices with the right words, waiting for someone to approve them.
     pub pending: Vec<PendingDevice>,
-    /// While this device waits: members that approved it, for the user to confirm.
-    pub offers: Vec<ApprovalOffer>,
-}
-
-/// "`approver` approved this device": adopted only once the user confirms it,
-/// so knowing the words isn't enough to capture a joining device.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ApprovalOffer {
-    /// The chain's root in the offered list; identifies the offer.
-    pub root: DeviceId,
-    pub approver: DeviceId,
-    pub approver_name: String,
-    pub approver_os: String,
-    /// Compare with the key the approving device shows for itself.
-    pub approver_key: Key32,
-    /// The Tailscale device the list came from.
-    pub via_node_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,7 +195,7 @@ impl Trust {
         chain.as_ref()?.membership.offer(list, self.me, &self.key.public(), UnixMillis::now())
     }
 
-    /// Takes an offered membership the user confirmed. False if no longer waiting.
+    /// Takes the membership an approval gave this device. False if no longer waiting.
     pub(crate) fn adopt(&self, membership: Membership) -> bool {
         let mut chain = self.write();
         match chain.as_mut() {
@@ -269,7 +252,7 @@ impl Trust {
         *self.replay.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = ReplayGuard::default();
     }
 
-    pub(crate) fn summary(&self, pending: Vec<PendingDevice>, offers: Vec<ApprovalOffer>) -> ChainStatus {
+    pub(crate) fn summary(&self, pending: Vec<PendingDevice>) -> ChainStatus {
         let chain = self.read();
         ChainStatus {
             chain: chain.as_ref().map(|chain| ChainSummary {
@@ -277,7 +260,6 @@ impl Trust {
                 approved: chain.membership.member(self.me).is_some(),
                 members: chain.membership.members().cloned().collect(),
                 pending,
-                offers,
             }),
         }
     }

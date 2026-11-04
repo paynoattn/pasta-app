@@ -1,6 +1,6 @@
 # 0007. Sync chain, end-to-end encryption and device approval (protocol v2)
 
-- Status: Accepted
+- Status: Accepted; the joining device's confirmation step superseded by 0010
 - Date: 2026-11-01
 - Issues: #20, #21, #22
 

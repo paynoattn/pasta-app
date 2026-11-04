@@ -22,19 +22,9 @@ export interface PendingDevice {
   wasRemoved: boolean;
 }
 
-/** Mirrors `OfferView` in `src-tauri/src/chain.rs`: a member that approved this device. */
-export interface ApprovalOffer {
-  approverName: string;
-  approverOs: string;
-  /** First 16 hex digits of the approver's key; that device shows the same as its own key. */
-  approverKey: string;
-  /** The Tailscale device the approval came from. */
-  viaNodeName: string;
-}
-
 /** Mirrors `ChainView` in `src-tauri/src/chain.rs`. */
 export interface ChainView {
-  /** `none`: not in a chain. `waiting`: knows the words, not approved yet. */
+  /** `none`: not in a chain. `waiting`: knows the words, no member has approved it yet. */
   state: "none" | "waiting" | "member";
   /** `ABCD-EFGH`, the same on every device in the chain. */
   fingerprint: string | null;
@@ -42,8 +32,6 @@ export interface ChainView {
   thisKey: string;
   members: ChainMember[];
   pending: PendingDevice[];
-  /** While waiting: approvals to confirm before this device trusts the chain. */
-  offers: ApprovalOffer[];
 }
 
 export function getChain(): Promise<ChainView> {
@@ -76,11 +64,6 @@ export function chainWords(): Promise<string> {
 /** `key` is the fingerprint shown for the device, compared with the joining device's screen. */
 export function approveDevice(deviceId: string, key: string): Promise<void> {
   return invoke<void>("approve_device", { deviceId, key });
-}
-
-/** On a device waiting for approval: confirms the approval from the member with this key. */
-export function acceptApproval(approverKey: string): Promise<void> {
-  return invoke<void>("accept_approval", { approverKey });
 }
 
 export function declineDevice(deviceId: string): Promise<void> {

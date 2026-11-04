@@ -88,12 +88,6 @@ async fn approve_device(state: tauri::State<'_, AppState>, device_id: String, ke
     runtime(&state)?.approve_device(crate::device_id(&device_id)?, &key).await
 }
 
-/// On a device waiting for approval: confirms the member whose key fingerprint the user compared.
-#[tauri::command]
-async fn accept_approval(state: tauri::State<'_, AppState>, approver_key: String) -> Result<(), String> {
-    runtime(&state)?.accept_approval(&approver_key).await
-}
-
 #[tauri::command]
 async fn decline_device(state: tauri::State<'_, AppState>, device_id: String) -> Result<(), String> {
     runtime(&state)?.decline_device(crate::device_id(&device_id)?).await
@@ -228,7 +222,6 @@ pub fn run() {
             leave_chain,
             chain_words,
             approve_device,
-            accept_approval,
             decline_device,
             remove_device,
         ])

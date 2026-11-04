@@ -2,7 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  acceptApproval,
   approveDevice,
   chainWords,
   createChain,
@@ -43,7 +42,6 @@ const chain: ChainView = {
       wasRemoved: false,
     },
   ],
-  offers: [],
 };
 
 beforeEach(() => {
@@ -110,17 +108,6 @@ describe("approveDevice", () => {
     expect(invoke).toHaveBeenCalledExactlyOnceWith("approve_device", {
       deviceId: DEVICE_ID,
       key: "0f1e2d3c4b5a6978",
-    });
-  });
-});
-
-describe("acceptApproval", () => {
-  it("calls accept_approval with the approver's key as `approverKey`", async () => {
-    vi.mocked(invoke).mockResolvedValue(undefined);
-
-    await expect(acceptApproval("a1b2c3d4e5f60718")).resolves.toBeUndefined();
-    expect(invoke).toHaveBeenCalledExactlyOnceWith("accept_approval", {
-      approverKey: "a1b2c3d4e5f60718",
     });
   });
 });

@@ -8,8 +8,8 @@
 //! ```sh
 //! # Start a chain; the words go to a file (0600), not the terminal.
 //! cargo run -p pasta-net --example chain_peer -- --create /tmp/words --auto-approve --for 300
-//! # Join it from another machine, accept the approval, send a test item every 5 s.
-//! cargo run -p pasta-net --example chain_peer -- --join /tmp/words --auto-accept --send-every 5 --for 120
+//! # Join it from another machine and send a test item every 5 s once approved.
+//! cargo run -p pasta-net --example chain_peer -- --join /tmp/words --send-every 5 --for 120
 //! ```
 //!
 //! Each run is a new device (fresh id and key). Don't run it next to the app
@@ -39,8 +39,6 @@ struct Args {
     create: Option<PathBuf>,
     join: Option<PathBuf>,
     auto_approve: bool,
-    auto_accept: bool,
-    accept_after: u64,
     send_every: Option<u64>,
     run_for: u64,
 }
@@ -54,12 +52,6 @@ fn parse() -> Args {
             "--create" => args.create = it.next().map(PathBuf::from),
             "--join" => args.join = it.next().map(PathBuf::from),
             "--auto-approve" => args.auto_approve = true,
-            "--auto-accept" => args.auto_accept = true,
-            // Accept approvals only this many seconds after they arrive (shows nothing syncs before).
-            "--accept-after" => {
-                args.auto_accept = true;
-                args.accept_after = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-            }
             "--send-every" => args.send_every = it.next().and_then(|s| s.parse().ok()),
             "--for" => args.run_for = it.next().and_then(|s| s.parse().ok()).unwrap_or(120),
             other => {
@@ -150,23 +142,12 @@ async fn main() {
                 let status = chain_status.borrow_and_update().clone();
                 if let Some(chain) = &status.chain {
                     println!(
-                        "chain {}: approved={} members={} pending={} offers={}",
+                        "chain {}: approved={} members={} pending={}",
                         chain.id.fingerprint(),
                         chain.approved,
                         chain.members.len(),
-                        chain.pending.len(),
-                        chain.offers.len()
+                        chain.pending.len()
                     );
-                    if args.auto_accept && !chain.offers.is_empty() {
-                        tokio::time::sleep(Duration::from_secs(args.accept_after)).await;
-                        for offer in &chain.offers {
-                            let key = pasta_crypto::keys::short(&offer.approver_key);
-                            println!("accepting the approval from {} (key {key})", offer.approver_name);
-                            if let Err(err) = network.accept(&key).await {
-                                println!("accept failed: {err}");
-                            }
-                        }
-                    }
                     if args.auto_approve {
                         for pending in &chain.pending {
                             println!("approving {} ({}, key {})", pending.device_id, pending.name, pasta_crypto::keys::short(&pending.device_key));

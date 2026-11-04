@@ -341,13 +341,6 @@ fn candidate(id: DeviceId, name: &str) -> Candidate {
     }
 }
 
-async fn wait_offers(peer: &Peer, n: usize) {
-    let mut chain = peer.chain_status();
-    within(chain.wait_for(|status| status.chain.as_ref().is_some_and(|chain| chain.offers.len() == n)))
-        .await
-        .unwrap_or_else(|_| panic!("{} never had {n} approval offers", peer.name));
-}
-
 async fn wait_pending_has(peer: &Peer, id: DeviceId) {
     let mut chain = peer.chain_status();
     within(chain.wait_for(|status| {
@@ -383,7 +376,32 @@ async fn start_capturer(chain: &TestChain, victim: DeviceId) -> Peer {
 }
 
 #[tokio::test]
-async fn knowing_the_words_isnt_enough_to_capture_a_waiting_device() {
+async fn a_waiting_device_joins_as_soon_as_a_member_approves_it() {
+    let chain = TestChain::new();
+    let real = PeerBuilder::new("macbook-pro").chain(member(&chain)).start().await;
+    let joiner = PeerBuilder::new("win-workstation").chain(ChainChoice::Joining(chain.clone())).start().await;
+    mesh(&[&real, &joiner]).await;
+
+    // Nothing syncs while it waits.
+    real.wait_pending(1).await;
+    real.clipboard.copy("before the approval");
+    settle().await;
+    assert!(joiner.clipboard.writes().is_empty(), "a waiting device took an item");
+    assert!(!joiner.chain_status().borrow().chain.as_ref().unwrap().approved);
+
+    // Approving on the member is all it takes: the joiner adopts the list by itself.
+    real.node().network().approve(joiner.id(), &joiner.fingerprint()).await.unwrap();
+    joiner.wait_approved(true).await;
+    assert!(joiner.member_ids().contains(&real.id()) && joiner.member_ids().contains(&joiner.id()));
+    real.clipboard.copy("after the approval");
+    assert_eq!(joiner.wait_writes(1).await, ["after the approval"]);
+}
+
+/// The trade-off of ADR 0010: a waiting device takes the first approval it
+/// gets, so someone else who knows the words and approves it first captures
+/// it, and the real chain's approval that comes later is ignored.
+#[tokio::test]
+async fn the_first_approval_wins_and_later_roots_are_ignored() {
     let chain = TestChain::new();
     let real = PeerBuilder::new("macbook-pro").chain(member(&chain)).start().await;
     let joiner_id = DeviceId::random();
@@ -393,90 +411,15 @@ async fn knowing_the_words_isnt_enough_to_capture_a_waiting_device() {
         .chain(ChainChoice::Joining(chain.clone()))
         .start()
         .await;
+    mesh(&[&attacker, &joiner]).await;
+    joiner.wait_approved(true).await;
+    assert!(joiner.member_ids().contains(&attacker.id()), "joined the chain that approved it first");
+
     mesh(&[&real, &attacker, &joiner]).await;
-
-    // The attacker's list becomes an offer that names the attacker, and nothing else happens.
-    wait_offers(&joiner, 1).await;
-    let summary = joiner.chain_status().borrow().chain.clone().unwrap();
-    assert!(!summary.approved, "adopted a member list nobody confirmed");
-    assert!(summary.members.is_empty(), "the attacker's members were adopted");
-    assert_eq!(summary.offers[0].approver, attacker.id());
-    assert_eq!(summary.offers[0].approver_name, "evil-laptop");
-    assert_eq!(summary.offers[0].approver_key, attacker.key.public());
-    assert_eq!(summary.offers[0].via_node_name, "loopback");
-
-    // The attacker believes the joiner is a member: it sends, and would take what the joiner copies.
-    attacker.clipboard.copy("canary for the captured device");
-    joiner.clipboard.copy("canary from the waiting device");
-    settle().await;
-    assert!(joiner.clipboard.writes().is_empty(), "the waiting device took an item from the attacker");
-    assert!(attacker.clipboard.writes().is_empty(), "the waiting device sent an item to the attacker");
-    assert!(real.clipboard.writes().is_empty(), "a waiting device sent an item to a member");
-    assert!(!joiner.chain_status().borrow().chain.as_ref().unwrap().approved);
-
-    // A real member approves it too. Offers are kept one per Tailscale node; here both
-    // devices share the loopback node, so the newer one takes the slot. The user picks by key.
     wait_pending_has(&real, joiner_id).await;
     real.node().network().approve(joiner_id, &joiner.fingerprint()).await.unwrap();
-    let mut status = joiner.chain_status();
-    within(status.wait_for(|status| {
-        status.chain.as_ref().is_some_and(|chain| chain.offers.iter().any(|offer| offer.approver == real.id()))
-    }))
-    .await
-    .unwrap();
-    let offers = joiner.chain_status().borrow().chain.clone().unwrap().offers;
-    assert_eq!(offers.len(), 1, "one offer per Tailscale node");
-    let genuine = offers.iter().find(|offer| offer.approver == real.id()).expect("an offer from the real member");
-    assert_eq!(genuine.approver_name, "macbook-pro");
-    assert_eq!(genuine.approver_key, real.key.public());
-    assert!(!joiner.chain_status().borrow().chain.as_ref().unwrap().approved, "an offer, nothing chosen yet");
-
-    // Fingerprints that match no offer, or are too short to mean anything, are refused.
-    let network = joiner.node().network();
-    let genuine_key = keys::short(&real.key.public());
-    for wrong in ["", "0000000000000000", &genuine_key[..8], &genuine_key[..15]] {
-        assert!(network.accept(wrong).await.is_err(), "accepted {wrong:?}");
-    }
-    let mut last_digit_off = genuine_key.clone();
-    last_digit_off.pop();
-    last_digit_off.push(if genuine_key.ends_with('0') { '1' } else { '0' });
-    assert!(network.accept(&last_digit_off).await.is_err());
-    let still = joiner.chain_status().borrow().chain.clone().unwrap();
-    assert!(!still.approved, "a bad fingerprint adopted a chain");
-    assert_eq!(still.offers.len(), 1, "a bad fingerprint dropped the offer");
-
-    network.accept(&genuine_key).await.unwrap();
-    let mut status = joiner.chain_status();
-    within(status.wait_for(|status| status.chain.as_ref().is_some_and(|chain| chain.approved))).await.unwrap();
-    let summary = joiner.chain_status().borrow().chain.clone().unwrap();
-    assert!(summary.offers.is_empty(), "offers left over after accepting one");
-    assert!(joiner.member_ids().contains(&real.id()) && joiner.member_ids().contains(&joiner_id));
-    assert!(!joiner.member_ids().contains(&attacker.id()), "the attacker became a member");
-    assert!(summary.pending.iter().any(|pending| pending.device_id == attacker.id()), "the attacker is just pending");
-
-    // The real chain works, and the attacker, which still thinks the joiner is its member, gets and gives nothing.
-    attacker.clipboard.copy("later canary from the attacker");
-    real.clipboard.copy("from the real member");
-    assert_eq!(joiner.wait_writes(1).await, ["from the real member"]);
-    joiner.clipboard.copy("from the joiner");
-    assert_eq!(real.wait_writes(1).await, ["from the joiner"]);
     settle().await;
-    assert_eq!(joiner.clipboard.writes().len(), 1, "an item from the attacker was applied");
-    assert!(attacker.clipboard.writes().is_empty(), "the joiner sent something to the attacker");
-    assert!(!real.member_ids().contains(&attacker.id()));
-}
-
-#[tokio::test]
-async fn accepting_needs_an_offer_to_accept() {
-    let chain = TestChain::new();
-    let waiting = PeerBuilder::new("win-workstation").chain(ChainChoice::Joining(chain.clone())).start().await;
-    assert!(waiting.node().network().accept("0000000000000000").await.is_err());
-    // A member has nothing to accept either, and a device outside any chain neither.
-    let a = PeerBuilder::new("macbook-pro").chain(member(&chain)).start().await;
-    let own_key = keys::short(&a.key.public());
-    assert!(a.node().network().accept(&own_key).await.is_err());
-    let loner = PeerBuilder::new("loner").chain(ChainChoice::None).start().await;
-    assert!(loner.node().network().accept(&own_key).await.is_err());
+    assert!(!joiner.member_ids().contains(&real.id()), "a list with another root was merged");
 }
 
 #[tokio::test]
@@ -499,7 +442,7 @@ async fn approving_needs_the_fingerprint_of_the_key_that_connected() {
     settle().await;
     assert!(!a.member_ids().contains(&fresh.id()), "approved on a wrong fingerprint");
     assert_eq!(a.pending_ids(), [fresh.id()], "still waiting");
-    assert!(fresh.chain_status().borrow().chain.as_ref().unwrap().offers.is_empty(), "an offer went out anyway");
+    assert!(!fresh.chain_status().borrow().chain.as_ref().unwrap().approved, "approved anyway");
 
     a.node().network().approve(fresh.id(), &shown).await.unwrap();
     fresh.wait_approved(true).await;

@@ -17,10 +17,10 @@
 //! - timestamps more than [`MAX_FUTURE`] ahead of the receiver's clock are
 //!   refused, so nobody can date an event out of reach.
 //!
-//! A joining device doesn't adopt a list by itself: [`Membership::offer`]
-//! turns a list that would make it a member into an offer that the user
-//! accepts after comparing the approver's key (the words alone must not be
-//! enough to capture a new device). A list must have exactly one root.
+//! A joining device has no root to check a list against, so `merge` ignores
+//! it: [`Membership::offer`] turns the first list that makes it a member into
+//! its membership, pinning that list's root (ADR 0010). A list must have
+//! exactly one root.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::time::Duration;
@@ -218,7 +218,7 @@ impl Membership {
 
     /// For a device waiting to be approved: the membership `list` would give
     /// it, if the list has a single root and makes this device a member under
-    /// its own key. The user confirms the approver before it's adopted.
+    /// its own key. The caller adopts it; later lists with another root are ignored.
     pub fn offer(&self, list: &MemberList, my_id: DeviceId, my_key: &Key32, now: UnixMillis) -> Option<Self> {
         if self.root.is_some() || !acceptable(list) {
             return None;
@@ -400,7 +400,7 @@ mod tests {
 
     const NOW: UnixMillis = UnixMillis(1_000_000);
 
-    /// What a joiner does after the user accepts the offer.
+    /// What a joiner does when a member's approval arrives.
     fn join(chain: ChainId, dev: &Dev, list: &MemberList) -> Membership {
         Membership::joining(chain).offer(list, dev.id, &dev.key.public(), NOW).expect("an offer")
     }

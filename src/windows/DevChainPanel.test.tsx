@@ -2,7 +2,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  acceptApproval,
   approveDevice,
   declineDevice,
   getChain,
@@ -12,7 +11,6 @@ import {
 import { DevChainPanel } from "./DevChainPanel";
 
 vi.mock("../ipc/chain", () => ({
-  acceptApproval: vi.fn(),
   approveDevice: vi.fn(),
   chainWords: vi.fn(),
   createChain: vi.fn(),
@@ -25,7 +23,6 @@ vi.mock("../ipc/chain", () => ({
 }));
 
 const THIS_KEY = "a1b2c3d4e5f60718";
-const APPROVER_KEY = "0f1e2d3c4b5a6978";
 const PENDING_KEY = "1122334455667788";
 const PENDING_ID = "00000000-0000-4000-8000-000000000002";
 
@@ -35,14 +32,6 @@ const waiting: ChainView = {
   thisKey: THIS_KEY,
   members: [],
   pending: [],
-  offers: [
-    {
-      approverName: "macbook-pro",
-      approverOs: "macos",
-      approverKey: APPROVER_KEY,
-      viaNodeName: "macbook-pro-ts",
-    },
-  ],
 };
 
 const member: ChainView = {
@@ -68,7 +57,6 @@ const member: ChainView = {
       wasRemoved: false,
     },
   ],
-  offers: [],
 };
 
 let container: HTMLDivElement;
@@ -76,7 +64,6 @@ let root: Root;
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  vi.mocked(acceptApproval).mockReset().mockResolvedValue(undefined);
   vi.mocked(approveDevice).mockReset().mockResolvedValue(undefined);
   vi.mocked(declineDevice).mockReset().mockResolvedValue(undefined);
   vi.mocked(getChain).mockReset();
@@ -113,38 +100,13 @@ async function click(el: HTMLElement) {
 }
 
 describe("DevChainPanel on a device waiting for approval", () => {
-  it("shows who approved it, with their key, and accepts by that key", async () => {
+  it("shows the key to approve and has nothing to accept here", async () => {
     await render(waiting);
-
-    const text = container.textContent;
-    expect(text).toContain("Waiting for approval");
-    expect(text).toContain(THIS_KEY);
-    expect(text).toContain("macbook-pro (macos");
-    expect(text).toContain("macbook-pro-ts");
-    expect(text).toContain(APPROVER_KEY);
-
-    await click(button("Accept"));
-    expect(acceptApproval).toHaveBeenCalledExactlyOnceWith(APPROVER_KEY);
-    // The panel refreshes from the backend afterwards.
-    expect(getChain).toHaveBeenCalledTimes(2);
-  });
-
-  it("offers nothing to accept until a member has approved it", async () => {
-    await render({ ...waiting, offers: [] });
 
     expect(container.textContent).toContain("Waiting for approval");
-    expect(container.textContent).not.toContain("Approved by");
+    expect(container.textContent).toContain(THIS_KEY);
+    expect(container.textContent).toContain("Syncing starts by itself");
     expect(container.querySelectorAll("button").length).toBe(1); // only "Leave the chain"
-  });
-
-  it("shows why an approval was refused", async () => {
-    vi.mocked(acceptApproval).mockRejectedValue("no approval from a device with that key");
-    await render(waiting);
-
-    await click(button("Accept"));
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      "no approval from a device with that key",
-    );
   });
 });
 

@@ -169,3 +169,24 @@ describe("DevChainPanel on a member", () => {
     expect(declineDevice).toHaveBeenCalledExactlyOnceWith(PENDING_ID);
   });
 });
+
+describe("DevChainPanel while Pasta is starting", () => {
+  it("shows the chain once the backend announces it", async () => {
+    let announce: ((chain: ChainView) => void) | undefined;
+    vi.mocked(onChainChanged).mockImplementation((handler) => {
+      announce = handler;
+      return Promise.resolve(() => undefined);
+    });
+    vi.mocked(getChain).mockRejectedValue("Pasta is still starting (is the keychain locked?)");
+    await act(async () => {
+      root.render(<DevChainPanel />);
+    });
+    expect(container.textContent).toContain("still starting");
+
+    await act(async () => {
+      announce?.({ ...member, pending: [] });
+    });
+    expect(container.textContent).toContain("ABCD-EFGH");
+    expect(container.textContent).not.toContain("still starting");
+  });
+});

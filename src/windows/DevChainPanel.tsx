@@ -23,12 +23,18 @@ export function DevChainPanel() {
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Why the first load failed, e.g. still waiting for the keychain. */
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    getChain()
-      .then(setChain)
-      .catch((err: unknown) => setError(String(err)));
+    // Listen first: while the keychain is locked `getChain` fails, and the
+    // backend sends `chain-changed` once it has started.
     const unlisten = onChainChanged(setChain);
+    void unlisten.then(() =>
+      getChain()
+        .then(setChain)
+        .catch((err: unknown) => setLoadError(String(err))),
+    );
     return () => {
       void unlisten.then((stop) => stop());
     };
@@ -48,7 +54,7 @@ export function DevChainPanel() {
   }, []);
 
   if (!chain) {
-    return <section className="chain">{error ?? "Loading…"}</section>;
+    return <section className="chain">{loadError ?? "Loading…"}</section>;
   }
 
   return (

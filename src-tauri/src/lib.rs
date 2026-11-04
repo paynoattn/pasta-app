@@ -14,7 +14,7 @@ use std::time::Duration;
 use pasta_core::device::DeviceId;
 use pasta_store::KeyringStore;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tokio::sync::Notify;
 
 use crate::chain::ChainView;
@@ -198,7 +198,10 @@ async fn start(handle: AppHandle, data_dir: PathBuf, log_dir: PathBuf, retry: Ar
     match Runtime::start(handle.clone(), config, storage, log_dir).await {
         Ok(runtime) => {
             runtime.refresh_tray(&handle);
+            let view = runtime.chain_view();
             let _ = handle.state::<AppState>().runtime.set(runtime);
+            // A window opened while the keychain was locked asked too early; tell it now.
+            let _ = handle.emit(runtime::CHAIN_CHANGED, view);
         }
         Err(err) => not_syncing(&handle, &err),
     }

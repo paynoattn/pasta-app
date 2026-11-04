@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   approveDevice,
+  chainWords,
   declineDevice,
   getChain,
   onChainChanged,
@@ -150,5 +151,25 @@ describe("DevChainPanel while Pasta is starting", () => {
     });
     expect(container.textContent).toContain("ABCD-EFGH");
     expect(container.textContent).not.toContain("still starting");
+  });
+});
+
+describe("DevChainPanel warnings about the words", () => {
+  it("warns before joining with words someone else gave you", async () => {
+    await render({ ...waiting, state: "none", fingerprint: null });
+
+    const note = container.querySelector('[role="note"]')?.textContent;
+    expect(note).toContain("Only enter words you got from your own device");
+    expect(note).toContain("see everything you copy");
+  });
+
+  it("shows the words with a warning to treat them like a password", async () => {
+    vi.mocked(chainWords).mockResolvedValue("abandon ability able");
+    await render({ ...member, pending: [] });
+
+    await click(button("Show the 24 words"));
+    const shown = container.querySelector(".chain__words")?.textContent;
+    expect(shown).toContain("abandon ability able");
+    expect(shown).toContain("Treat them like a password");
   });
 });

@@ -75,6 +75,11 @@ export function DevChainPanel() {
           >
             Create a new chain
           </button>
+          <p className="chain__warning" role="note">
+            <strong>Only enter words you got from your own device.</strong> If someone sent you
+            words or asked you to type them here, even someone saying they&apos;re from support,
+            stop: this device would sync with theirs, and they would see everything you copy.
+          </p>
           <label className="chain__join">
             Or join one with its 24 words:
             <textarea
@@ -171,11 +176,19 @@ export function DevChainPanel() {
       )}
 
       {words && (
-        <p className="chain__words">
-          {words}
-          <br />
-          <small>Type these on the other device. Anyone with them can ask to join.</small>
-        </p>
+        <div className="chain__words">
+          <p className="chain__warning" role="note">
+            On your other device, open Pasta&apos;s sync chain panel and type these words under
+            &ldquo;join one with its 24 words&rdquo;.{" "}
+            <strong>
+              Treat them like a password. Never give them to anyone, even someone saying
+              they&apos;re from support.
+            </strong>{" "}
+            With the words, someone could join your chain or take over a device while it joins, and
+            see what you copy.
+          </p>
+          <p className="chain__code">{words}</p>
+        </div>
       )}
 
       {chain.state !== "none" && (

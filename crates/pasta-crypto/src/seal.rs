@@ -72,6 +72,7 @@ impl ChainKeys {
         let estimate = match inner {
             Inner::Clip(clip) => clip.flavors.byte_len().saturating_mul(2).saturating_add(4096),
             Inner::Members(list) => list.records.len().saturating_mul(512).saturating_add(4096),
+            Inner::Settings(_) | Inner::ConfigUpdate(_) => 1024,
         };
         let mut plaintext = Zeroizing::new(Vec::with_capacity(estimate));
         // Serialising plain data into a Vec can't fail.
@@ -174,6 +175,40 @@ mod tests {
 
         let members = chain.seal_envelope(me, &Inner::Members(MemberList::default()));
         assert_eq!(chain.open_envelope(&members).unwrap(), Inner::Members(MemberList::default()));
+    }
+
+    #[test]
+    fn seals_and_opens_settings_and_config_updates() {
+        use pasta_core::device::SyncMode;
+        use pasta_core::remote::{ConfigUpdate, DeviceSettings, SettingsVersion};
+        use pasta_core::wire::Bytes;
+
+        let chain = ChainKeys::generate();
+        let me = DeviceId::random();
+        let issuer = DeviceId::random();
+        let settings = Inner::Settings(DeviceSettings {
+            mode: SyncMode::Receive,
+            ttl_secs: Some(300),
+            paused_until: Some(UnixMillis(1_730_000_000_000)),
+            version: SettingsVersion { counter: 4, at: UnixMillis(9), by: me },
+        });
+        let update = Inner::ConfigUpdate(ConfigUpdate {
+            target: DeviceId::random(),
+            mode: SyncMode::Send,
+            ttl_secs: None,
+            version: SettingsVersion { counter: 5, at: UnixMillis(10), by: issuer },
+            signature: Bytes([8; 64]),
+        });
+
+        for inner in [&settings, &update] {
+            let envelope = chain.seal_envelope(me, inner);
+            let frame = envelope.encode();
+            let decoded = Envelope::decode(&frame, DEFAULT_MAX_ITEM_BYTES).unwrap();
+            assert_eq!(decoded.message.kind(), "encrypted");
+            assert_eq!(chain.open_envelope(&decoded).unwrap(), *inner, "{} round-trips", inner.kind());
+            // Nothing about the mode, expiry or signature travels in the clear.
+            assert!(!frame.contains("receive") && !frame.contains("config_update"), "kind on the wire");
+        }
     }
 
     fn clip_with_id(inner: &Inner, me: DeviceId, text: &str) -> Inner {

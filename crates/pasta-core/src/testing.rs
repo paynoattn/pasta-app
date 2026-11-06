@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use uuid::Uuid;
 
-use crate::clip::Flavors;
-use crate::clipboard::{ClipboardAdapter, ClipboardError, CopySink, LocalCopy, Watch, WriteReceipt};
+use crate::clip::{Flavors, SourceApp};
+use crate::clipboard::{AdapterOptions, ClipboardAdapter, ClipboardError, CopySink, LocalCopy, Watch, WriteReceipt};
 
 type Sink = Arc<dyn Fn(LocalCopy) + Send + Sync>;
 
@@ -26,6 +26,8 @@ struct Inner {
     current: Option<Flavors>,
     writes: Vec<Flavors>,
     expired: Vec<Uuid>,
+    concealed: Vec<Uuid>,
+    options: Option<AdapterOptions>,
     quiet_writes: bool,
     fail_writes: bool,
 }
@@ -50,14 +52,29 @@ impl FakeClipboard {
     }
 
     pub fn copy_flavors(&self, flavors: Flavors) {
+        self.copy_from(flavors, None);
+    }
+
+    /// Simulates a copy made in `app`.
+    pub fn copy_from(&self, flavors: Flavors, source_app: Option<SourceApp>) {
         let sink = {
             let mut inner = self.lock();
             inner.current = Some(flavors.clone());
             inner.sink.clone()
         };
         if let Some(sink) = sink {
-            sink(LocalCopy { flavors, source_app: None });
+            sink(LocalCopy { flavors, source_app });
         }
+    }
+
+    /// Item ids written with [`ClipboardAdapter::write_concealed`].
+    pub fn concealed(&self) -> Vec<Uuid> {
+        self.lock().concealed.clone()
+    }
+
+    /// The options last passed to [`ClipboardAdapter::configure`].
+    pub fn options(&self) -> Option<AdapterOptions> {
+        self.lock().options.clone()
     }
 
     pub fn current(&self) -> Option<Flavors> {
@@ -109,5 +126,20 @@ impl ClipboardAdapter for FakeClipboard {
     fn expire(&self, receipt: &WriteReceipt) -> Result<(), ClipboardError> {
         self.lock().expired.push(receipt.item_id);
         Ok(())
+    }
+
+    /// Never echoed back: real adapters mark these so their watchers skip them.
+    fn write_concealed(&self, item_id: Uuid, flavors: &Flavors) -> Result<WriteReceipt, ClipboardError> {
+        let mut inner = self.lock();
+        if inner.fail_writes {
+            return Err(ClipboardError::Busy);
+        }
+        inner.current = Some(flavors.clone());
+        inner.concealed.push(item_id);
+        Ok(WriteReceipt { item_id, history_id: None, change_count: None })
+    }
+
+    fn configure(&self, options: &AdapterOptions) {
+        self.lock().options = Some(options.clone());
     }
 }

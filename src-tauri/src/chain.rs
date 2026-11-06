@@ -1,8 +1,8 @@
 //! Creating, joining and leaving the sync chain, and approving devices (#20, #22).
 //!
 //! The chain secret lives in the keychain entry (#23), the member list in the
-//! encrypted store (#25). Until the real setup flow (#46) and Devices screen
-//! (#43) land, the settings window has a small developer panel for these.
+//! encrypted store (#25). The setup flow (#43), Settings › Devices (#30) and
+//! the Add Device sheet (#46) drive these.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,6 +17,7 @@ use pasta_net::trust::{ChainSetup, ChainStatus};
 use pasta_store::Database;
 use pasta_store::secrets::DeviceSecrets;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use zeroize::Zeroizing;
 
 use crate::runtime::Runtime;
@@ -53,11 +54,13 @@ pub fn apply_log_key(keys: Option<&ChainKeys>) {
     pasta_core::clip::set_log_key(keys.map(|keys| keys.log_key().expose()));
 }
 
-/// What the developer chain panel shows. Mirrored in `src/ipc/chain.ts`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// The sync chain as the Devices page and setup flow show it (#20, #22, #30).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub struct ChainView {
     /// `none`, `waiting` (knows the words, not approved yet) or `member`.
+    #[ts(type = "\"none\" | \"waiting\" | \"member\"")]
     pub state: &'static str,
     /// `ABCD-EFGH`: the same on every device in the chain.
     pub fingerprint: Option<String>,
@@ -67,8 +70,9 @@ pub struct ChainView {
     pub pending: Vec<PendingView>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub struct MemberView {
     pub device_id: String,
     pub name: String,
@@ -77,8 +81,9 @@ pub struct MemberView {
     pub connected: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub struct PendingView {
     pub device_id: String,
     pub name: String,
@@ -173,6 +178,32 @@ impl Runtime {
         self.current_chain().map(|keys| keys.words()).ok_or_else(|| "this device isn't in a sync chain".into())
     }
 
+    /// The words as a QR code (an SVG `data:` URL), for a future mobile app (#46, #63).
+    pub fn chain_qr(&self) -> Result<String, String> {
+        use base64::Engine as _;
+        let words = self.chain_words()?;
+        let code = qrcode::QrCode::new(words.as_bytes()).map_err(|err| err.to_string())?;
+        let svg = Zeroizing::new(
+            code.render::<qrcode::render::svg::Color<'_>>().min_dimensions(220, 220).quiet_zone(true).build(),
+        );
+        Ok(format!("data:image/svg+xml;base64,{}", base64::engine::general_purpose::STANDARD.encode(svg.as_bytes())))
+    }
+
+    /// Copies the words for pasting on the new device: marked concealed, kept
+    /// out of every clipboard history, and never synced (#46).
+    pub async fn copy_chain_words(&self) -> Result<(), String> {
+        let words = self.chain_words()?;
+        let node = self.node.lock().await;
+        let node = node.as_ref().ok_or("Pasta is stopping")?;
+        node.write_local_wait(
+            pasta_core::clip::Flavors::plain(words.as_str()),
+            pasta_core::clipboard::WriteKind::Concealed,
+        )
+        .await?;
+        tracing::info!("copied the chain words, concealed");
+        Ok(())
+    }
+
     /// `key` is the fingerprint the user compared with the joining device's screen.
     pub async fn approve_device(&self, device: DeviceId, key: &str) -> Result<(), String> {
         self.network.approve(device, key).await
@@ -206,6 +237,10 @@ impl Runtime {
         *self.chain_keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         apply_log_key(None);
         self.network.set_chain(None).await;
+        // Changes queued for the old chain's devices mustn't follow into another chain.
+        if let Err(err) = self.config.update(|config| config.pending_updates.clear()) {
+            tracing::warn!(error = %err, "couldn't drop the queued settings changes");
+        }
         tracing::info!("forgot the sync chain");
         Ok(())
     }

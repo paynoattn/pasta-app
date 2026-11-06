@@ -1,38 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-/** Mirrors `MemberView` in `src-tauri/src/chain.rs`. */
-export interface ChainMember {
-  deviceId: string;
-  name: string;
-  os: string;
-  thisDevice: boolean;
-  connected: boolean;
-}
+import type { ChainView } from "./bindings/ChainView";
+import type { MemberView } from "./bindings/MemberView";
+import type { PendingView } from "./bindings/PendingView";
 
-/** Mirrors `PendingView` in `src-tauri/src/chain.rs`. */
-export interface PendingDevice {
-  deviceId: string;
-  name: string;
-  os: string;
-  /** The Tailscale device it connected from. */
-  nodeName: string;
-  /** First 16 hex digits of its device key; the joining device shows the same. */
-  key: string;
-  wasRemoved: boolean;
-}
-
-/** Mirrors `ChainView` in `src-tauri/src/chain.rs`. */
-export interface ChainView {
-  /** `none`: not in a chain. `waiting`: knows the words, no member has approved it yet. */
-  state: "none" | "waiting" | "member";
-  /** `ABCD-EFGH`, the same on every device in the chain. */
-  fingerprint: string | null;
-  /** First 16 hex digits of this device's key. */
-  thisKey: string;
-  members: ChainMember[];
-  pending: PendingDevice[];
-}
+export type { ChainView };
+/** A member of the chain. */
+export type ChainMember = MemberView;
+/** A device that knows the words and waits for a member to approve it. */
+export type PendingDevice = PendingView;
 
 export function getChain(): Promise<ChainView> {
   return invoke<ChainView>("chain_status");
@@ -72,4 +49,14 @@ export function declineDevice(deviceId: string): Promise<void> {
 
 export function removeDevice(deviceId: string): Promise<void> {
   return invoke<void>("remove_device", { deviceId });
+}
+
+/** The words as a QR code: an SVG `data:` URL. */
+export function chainQr(): Promise<string> {
+  return invoke<string>("chain_qr");
+}
+
+/** Copies the words, marked concealed and kept out of every clipboard history, without syncing. */
+export function copyChainWords(): Promise<void> {
+  return invoke<void>("copy_chain_words");
 }

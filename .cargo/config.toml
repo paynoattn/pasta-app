@@ -2,3 +2,7 @@
 # otherwise a no-op. See scripts/macos-dev-runner.sh and docs/development.md.
 [target.'cfg(target_os = "macos")']
 runner = "scripts/macos-dev-runner.sh"
+
+# TypeScript bindings for the IPC types (#28): `cargo test -p pasta-app` writes them here.
+[env]
+TS_RS_EXPORT_DIR = { value = "src/ipc/bindings", relative = true }

@@ -13,8 +13,11 @@ pub mod clipboard;
 pub mod config;
 pub mod device;
 pub mod engine;
+pub mod expiry;
 pub mod history;
 pub mod protocol;
+pub mod remote;
+pub mod rtf;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 pub mod wire;

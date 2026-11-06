@@ -1,8 +1,8 @@
 //! Device settings and known peers (#8), kept in the encrypted store (#25).
 //!
 //! On the first M2 start, M1's plain `config.json` is imported and deleted.
-//! Since the file is gone, settings are no longer edited by hand; the
-//! settings UI arrives in M3 (#29). `PASTA_LOG` still overrides the log level.
+//! Since the file is gone, settings are changed in the Settings window (#29).
+//! `PASTA_LOG` still overrides the log level.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -24,6 +24,8 @@ pub struct ConfigStore {
     /// What happened while opening, logged once logging is up.
     notices: Mutex<Vec<String>>,
     current: watch::Sender<Config>,
+    /// Serialises [`ConfigStore::update`]: commands and the runtime loop change it concurrently.
+    writing: Mutex<()>,
 }
 
 impl ConfigStore {
@@ -66,7 +68,7 @@ impl ConfigStore {
                 Err(err) => notices.push(format!("couldn't delete {}: {err}", m1_file.display())),
             }
         }
-        Ok(Self { db, notices: Mutex::new(notices), current: watch::channel(config).0 })
+        Ok(Self { db, notices: Mutex::new(notices), current: watch::channel(config).0, writing: Mutex::new(()) })
     }
 
     /// Messages from [`ConfigStore::open`], for logging once it's set up.
@@ -89,6 +91,7 @@ impl ConfigStore {
 
     /// Changes the config and saves it.
     pub fn update(&self, change: impl FnOnce(&mut Config)) -> Result<(), ConfigError> {
+        let _writing = self.writing.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut config = self.get();
         change(&mut config);
         if config == *self.current.borrow() {

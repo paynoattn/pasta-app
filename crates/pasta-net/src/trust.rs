@@ -9,8 +9,9 @@
 use std::sync::{Arc, Mutex, RwLock};
 
 use pasta_core::chain::{MemberList, MemberRecord};
-use pasta_core::device::{DeviceId, DeviceInfo, UnixMillis};
+use pasta_core::device::{DeviceId, DeviceInfo, SyncMode, UnixMillis};
 use pasta_core::protocol::{Envelope, Hello, Inner, Role, handshake_transcript};
+use pasta_core::remote::{ConfigUpdate, SettingsVersion};
 use pasta_core::wire::{Key32, Sig64};
 use pasta_crypto::membership::{Candidate, Membership, MembershipError, MergeOutcome, Root};
 use pasta_crypto::seal::{OpenError, ReplayGuard};
@@ -150,6 +151,28 @@ impl Trust {
             Role::Listener => &listener.device_key,
         };
         pasta_crypto::keys::verify(signer, &handshake_transcript(role, dialer, listener), signature)
+    }
+
+    /// Signs a config update (#31) for this chain with this device's key.
+    pub(crate) fn sign_config(
+        &self,
+        target: DeviceId,
+        mode: SyncMode,
+        ttl_secs: Option<u64>,
+        version: SettingsVersion,
+    ) -> Option<ConfigUpdate> {
+        let chain = self.read();
+        let chain_id = chain.as_ref()?.keys.id();
+        let bytes = pasta_core::remote::signing_bytes(&chain_id.0, target, mode, ttl_secs, &version);
+        Some(ConfigUpdate { target, mode, ttl_secs, version, signature: self.key.sign(&bytes) })
+    }
+
+    /// Whether `update` was signed by its issuer's member key in this chain.
+    pub(crate) fn verify_config(&self, update: &ConfigUpdate) -> bool {
+        let chain = self.read();
+        let Some(chain) = chain.as_ref() else { return false };
+        let Some(issuer) = chain.membership.member(update.issuer()) else { return false };
+        pasta_crypto::keys::verify(&issuer.device_key, &update.signing_bytes(&chain.keys.id().0), &update.signature)
     }
 
     /// The member record for `device`, if it's a current member.

@@ -705,11 +705,14 @@ async fn read_inner(raw: &mut Joined, window: Duration) -> Vec<Inner> {
     received
 }
 
+/// The member lists among `received`. Members also announce their settings (#31) when a
+/// peer connects; those are skipped.
 fn member_lists(received: Vec<Inner>) -> Vec<pasta_core::chain::MemberList> {
     received
         .into_iter()
-        .map(|inner| match inner {
-            Inner::Members(list) => list,
+        .filter_map(|inner| match inner {
+            Inner::Members(list) => Some(list),
+            Inner::Settings(_) => None,
             other => panic!("expected a member list, got {}", other.kind()),
         })
         .collect()

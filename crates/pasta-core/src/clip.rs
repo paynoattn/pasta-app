@@ -163,6 +163,9 @@ fn current_log_key() -> [u8; 32] {
     })
 }
 
+/// [`SourceApp::id`] of items that arrived through iCloud Universal Clipboard (#41).
+pub const UNIVERSAL_CLIPBOARD_APP_ID: &str = "com.apple.is-remote-clipboard";
+
 /// The app an item was copied from, for the panel's source icon and for
 /// excluded apps (#36).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,9 +177,116 @@ pub struct SourceApp {
     pub id: String,
 }
 
+/// What an item looks like, for the panel's cards and filters (#38, #40).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemKind {
+    Text,
+    /// A single URL.
+    Link,
+    /// Source code or terminal output: shown in a monospace card.
+    Code,
+}
+
+impl ItemKind {
+    pub fn of(flavors: &Flavors) -> Self {
+        let text = flavors.plain.trim();
+        if is_link(text) {
+            return Self::Link;
+        }
+        if looks_like_code(text, flavors.html.as_deref()) { Self::Code } else { Self::Text }
+    }
+}
+
+fn is_link(text: &str) -> bool {
+    if text.is_empty() || text.len() > 2048 || text.chars().any(char::is_whitespace) {
+        return false;
+    }
+    let lower = text.to_ascii_lowercase();
+    let rest = ["https://", "http://"].iter().find_map(|scheme| lower.strip_prefix(scheme));
+    match rest {
+        Some(rest) => rest.split(['/', '?', '#']).next().is_some_and(|host| host.contains('.') || host.contains(':')),
+        None => lower.starts_with("www.") && lower.len() > 4,
+    }
+}
+
+fn looks_like_code(text: &str, html: Option<&str>) -> bool {
+    if let Some(html) = html {
+        let html = html.get(..html.len().min(4096)).unwrap_or_default().to_ascii_lowercase();
+        if html.contains("<pre") || html.contains("<code") || html.contains("monospace") {
+            return true;
+        }
+    }
+    let lines: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).take(200).collect();
+    if lines.is_empty() {
+        return false;
+    }
+    let mut score = 0usize;
+    for line in &lines {
+        let trimmed = line.trim();
+        if line.starts_with("    ") || line.starts_with('\t') {
+            score += 1;
+        }
+        if trimmed.ends_with(';') || trimmed.ends_with('{') || trimmed == "}" || trimmed.ends_with("});") {
+            score += 2;
+        }
+        if CODE_STARTS.iter().any(|start| trimmed.starts_with(start)) {
+            score += 2;
+        }
+        if ["=>", "->", "::", "!=", "==", "&&", "||"].iter().any(|op| trimmed.contains(op)) {
+            score += 1;
+        }
+    }
+    // One strong line is enough for a snippet; longer text needs a steady signal.
+    if lines.len() == 1 { score >= 4 } else { score > lines.len() }
+}
+
+const CODE_STARTS: &[&str] = &[
+    "fn ",
+    "pub fn",
+    "let ",
+    "const ",
+    "var ",
+    "function ",
+    "def ",
+    "class ",
+    "import ",
+    "from ",
+    "#include",
+    "use ",
+    "return ",
+    "if (",
+    "for (",
+    "while (",
+    "SELECT ",
+    "select ",
+    "$ ",
+    "package ",
+    "func ",
+    "public ",
+    "private ",
+    "<?php",
+    "#!/",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classifies_links_code_and_text() {
+        assert_eq!(ItemKind::of(&Flavors::plain("https://example.com/a?b=c")), ItemKind::Link);
+        assert_eq!(ItemKind::of(&Flavors::plain("  www.example.com ")), ItemKind::Link);
+        assert_eq!(ItemKind::of(&Flavors::plain("see https://example.com")), ItemKind::Text);
+        assert_eq!(ItemKind::of(&Flavors::plain("https://")), ItemKind::Text);
+        let code = "fn main() {\n    let x = 1;\n    println!(\"{x}\");\n}";
+        assert_eq!(ItemKind::of(&Flavors::plain(code)), ItemKind::Code);
+        assert_eq!(ItemKind::of(&Flavors::plain("const total = items.length;")), ItemKind::Code);
+        assert_eq!(ItemKind::of(&Flavors::plain("Meeting moved to 3pm.\nSee you there.")), ItemKind::Text);
+        let html = Flavors { plain: "x = 1".into(), html: Some("<pre>x = 1</pre>".into()), rtf: None };
+        assert_eq!(ItemKind::of(&html), ItemKind::Code);
+        assert_eq!(serde_json::to_string(&ItemKind::Link).unwrap(), "\"link\"");
+    }
 
     #[test]
     fn hash_ignores_rich_flavors_and_line_endings() {

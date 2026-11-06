@@ -9,13 +9,14 @@
 
 use std::cell::{Cell, RefCell};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, sleep};
 use std::time::{Duration, Instant};
 
 use pasta_core::clip::{ContentHash, Flavors, SourceApp};
 use pasta_core::clipboard::{
-    ClipboardAdapter, ClipboardError, ClipboardStatus, CopySink, LocalCopy, Watch, WriteReceipt,
+    AdapterOptions, ClipboardAdapter, ClipboardError, ClipboardStatus, CopySink, LocalCopy, Watch, WriteKind,
+    WriteReceipt,
 };
 use uuid::Uuid;
 use windows::ApplicationModel::DataTransfer::{
@@ -30,15 +31,18 @@ use windows::Win32::System::DataExchange::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 use windows::Win32::System::Ole::CF_UNICODETEXT;
+use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows::Win32::System::Threading::{
     GetCurrentProcessId, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize, RoUninitialize};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetForegroundWindow, GetMessageW,
-    GetWindowThreadProcessId, HWND_MESSAGE, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage,
-    RegisterClassExW, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLIPBOARDUPDATE, WNDCLASSEXW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumWindows, GetForegroundWindow, GetMessageW,
+    GetWindowTextLengthW, GetWindowThreadProcessId, HWND_MESSAGE, IsWindowVisible, MSG, PM_REMOVE, PeekMessageW,
+    PostMessageW, PostQuitMessage, RegisterClassExW, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP,
+    WM_CLIPBOARDUPDATE, WNDCLASSEXW,
 };
+use windows::core::BOOL;
 use windows::core::{HSTRING, PCWSTR, PWSTR, w};
 
 use crate::cf_html;
@@ -53,9 +57,14 @@ const JOB_TIMEOUT: Duration = Duration::from_secs(10);
 const HISTORY_LOOKUP: Duration = Duration::from_millis(1500);
 
 type Sink = Arc<dyn Fn(LocalCopy) + Send + Sync>;
+type Options = Arc<RwLock<AdapterOptions>>;
+
+fn read_options(options: &Options) -> AdapterOptions {
+    options.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
 
 enum Job {
-    Write { item_id: Uuid, flavors: Flavors, reply: Sender<Result<WriteReceipt, ClipboardError>> },
+    Write { item_id: Uuid, flavors: Flavors, kind: WriteKind, reply: Sender<Result<WriteReceipt, ClipboardError>> },
     Expire { receipt: WriteReceipt, reply: Sender<Result<(), ClipboardError>> },
     Status { reply: Sender<ClipboardStatus> },
 }
@@ -65,6 +74,7 @@ pub struct WindowsClipboard {
     /// The thread's window, as an integer because `HWND` isn't `Send`.
     hwnd: isize,
     sink: Arc<Mutex<Option<Sink>>>,
+    options: Options,
     thread: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
@@ -73,13 +83,15 @@ impl WindowsClipboard {
         let (jobs_tx, jobs_rx) = mpsc::channel();
         let (ready_tx, ready_rx) = mpsc::channel();
         let sink: Arc<Mutex<Option<Sink>>> = Arc::default();
+        let options = Options::default();
         let thread_sink = Arc::clone(&sink);
+        let thread_options = Arc::clone(&options);
         let thread = thread::Builder::new()
             .name("pasta-clipboard".into())
-            .spawn(move || run_thread(jobs_rx, thread_sink, ready_tx))
+            .spawn(move || run_thread(jobs_rx, thread_sink, thread_options, ready_tx))
             .map_err(|err| ClipboardError::Os(err.to_string()))?;
         let hwnd = ready_rx.recv().map_err(|_| ClipboardError::Stopped)??;
-        Ok(Self { jobs: Mutex::new(jobs_tx), hwnd, sink, thread: Mutex::new(Some(thread)) })
+        Ok(Self { jobs: Mutex::new(jobs_tx), hwnd, sink, options, thread: Mutex::new(Some(thread)) })
     }
 
     fn request<T>(&self, job: impl FnOnce(Sender<T>) -> Job) -> Result<T, ClipboardError> {
@@ -117,7 +129,16 @@ impl ClipboardAdapter for WindowsClipboard {
 
     fn write(&self, item_id: Uuid, flavors: &Flavors) -> Result<WriteReceipt, ClipboardError> {
         let flavors = flavors.clone();
-        self.request(|reply| Job::Write { item_id, flavors, reply })?
+        self.request(|reply| Job::Write { item_id, flavors, kind: WriteKind::Normal, reply })?
+    }
+
+    fn write_concealed(&self, item_id: Uuid, flavors: &Flavors) -> Result<WriteReceipt, ClipboardError> {
+        let flavors = flavors.clone();
+        self.request(|reply| Job::Write { item_id, flavors, kind: WriteKind::Concealed, reply })?
+    }
+
+    fn configure(&self, options: &AdapterOptions) {
+        *self.options.write().unwrap_or_else(std::sync::PoisonError::into_inner) = options.clone();
     }
 
     fn expire(&self, receipt: &WriteReceipt) -> Result<(), ClipboardError> {
@@ -159,6 +180,7 @@ struct ThreadState {
     hwnd: HWND,
     jobs: Receiver<Job>,
     sink: Arc<Mutex<Option<Sink>>>,
+    options: Options,
     formats: Formats,
     own_pid: u32,
 }
@@ -169,7 +191,12 @@ thread_local! {
     static MISSED_UPDATE: Cell<bool> = const { Cell::new(false) };
 }
 
-fn run_thread(jobs: Receiver<Job>, sink: Arc<Mutex<Option<Sink>>>, ready: Sender<Result<isize, ClipboardError>>) {
+fn run_thread(
+    jobs: Receiver<Job>,
+    sink: Arc<Mutex<Option<Sink>>>,
+    options: Options,
+    ready: Sender<Result<isize, ClipboardError>>,
+) {
     let window = unsafe { create_window() };
     let hwnd = match window {
         Ok(hwnd) => hwnd,
@@ -180,7 +207,7 @@ fn run_thread(jobs: Receiver<Job>, sink: Arc<Mutex<Option<Sink>>>, ready: Sender
     };
     let formats = Formats::register();
     let own_pid = unsafe { GetCurrentProcessId() };
-    STATE.with(|state| *state.borrow_mut() = Some(ThreadState { hwnd, jobs, sink, formats, own_pid }));
+    STATE.with(|state| *state.borrow_mut() = Some(ThreadState { hwnd, jobs, sink, options, formats, own_pid }));
     let _ = ready.send(Ok(hwnd.0 as isize));
 
     let mut msg = MSG::default();
@@ -268,15 +295,16 @@ fn with_state(f: fn(&mut ThreadState)) -> bool {
 fn run_jobs(state: &mut ThreadState) {
     while let Ok(job) = state.jobs.try_recv() {
         match job {
-            Job::Write { item_id, flavors, reply } => {
-                let _ = reply.send(write(item_id, &flavors));
+            Job::Write { item_id, flavors, kind, reply } => {
+                let add_to_history = read_options(&state.options).add_to_history;
+                let _ = reply.send(write(item_id, &flavors, kind, add_to_history));
             }
             Job::Expire { receipt, reply } => {
                 let _ = reply.send(expire(&receipt));
             }
             Job::Status { reply } => {
                 let history_enabled = Clipboard::IsHistoryEnabled().ok();
-                let _ = reply.send(ClipboardStatus { history_enabled, unsupported: None });
+                let _ = reply.send(ClipboardStatus { history_enabled, cloud_sync: cloud_sync(), unsupported: None });
             }
         }
     }
@@ -294,17 +322,42 @@ fn on_clipboard_update(state: &mut ThreadState) {
     // Copies with no owner window (rare) are attributed to the foreground app.
     let source_pid = owner_pid.or_else(|| Some(window_pid(unsafe { GetForegroundWindow() })));
     let source = source_pid.and_then(process_source_app);
-    if let Some(app) = &source
-        && is_password_manager_exe(&app.id)
-    {
-        tracing::debug!(app = %app.id, "skipped a copy from a password manager");
-        return;
+    let options = read_options(&state.options);
+    if let Some(app) = &source {
+        if options.skip_sensitive && is_password_manager_exe(&app.id) {
+            tracing::debug!(app = %app.id, "skipped a copy from a password manager");
+            return;
+        }
+        if options.excluded_apps.iter().any(|id| id.eq_ignore_ascii_case(&app.id)) {
+            tracing::debug!(app = %app.id, "skipped a copy from an excluded app");
+            return;
+        }
     }
-    match read_clipboard(state) {
+    match read_clipboard(state, options.skip_sensitive) {
         Ok(Some(flavors)) => sink(LocalCopy { flavors, source_app: source }),
         Ok(None) => {}
         Err(err) => tracing::warn!(error = %err, "couldn't read the clipboard"),
     }
+}
+
+/// Apps with a visible, titled top-level window, except Pasta.
+pub(crate) fn running_apps() -> Vec<SourceApp> {
+    unsafe extern "system" fn collect(hwnd: HWND, pids: LPARAM) -> BOOL {
+        // SAFETY: `pids` is the Vec passed to EnumWindows below, alive for the call.
+        let pids = unsafe { &mut *(pids.0 as *mut Vec<u32>) };
+        let visible = unsafe { IsWindowVisible(hwnd) }.as_bool();
+        if visible && unsafe { GetWindowTextLengthW(hwnd) } > 0 {
+            let pid = window_pid(hwnd);
+            if !pids.contains(&pid) {
+                pids.push(pid);
+            }
+        }
+        BOOL(1)
+    }
+    let mut pids: Vec<u32> = Vec::new();
+    let _ = unsafe { EnumWindows(Some(collect), LPARAM(&raw mut pids as isize)) };
+    let own = unsafe { GetCurrentProcessId() };
+    pids.into_iter().filter(|pid| *pid != own).filter_map(process_source_app).collect()
 }
 
 fn window_pid(hwnd: HWND) -> u32 {
@@ -334,12 +387,12 @@ fn process_source_app(pid: u32) -> Option<SourceApp> {
 
 /// Reads text, HTML and RTF unless the item is marked sensitive. `Ok(None)`
 /// for items that are sensitive or have no text.
-fn read_clipboard(state: &ThreadState) -> Result<Option<Flavors>, ClipboardError> {
+fn read_clipboard(state: &ThreadState, skip_sensitive: bool) -> Result<Option<Flavors>, ClipboardError> {
     open_clipboard(state.hwnd)?;
     let result = (|| {
         let formats = &state.formats;
         let available = |format: u32| unsafe { IsClipboardFormatAvailable(format) }.is_ok();
-        if available(formats.exclude) {
+        if skip_sensitive && available(formats.exclude) {
             tracing::debug!("skipped a copy marked ExcludeClipboardContentFromMonitorProcessing");
             return Ok(None);
         }
@@ -347,7 +400,10 @@ fn read_clipboard(state: &ThreadState) -> Result<Option<Flavors>, ClipboardError
             (formats.can_include_in_history, "CanIncludeInClipboardHistory"),
             (formats.can_upload_to_cloud, "CanUploadToCloudClipboard"),
         ] {
-            if available(format) && read_bytes(format).is_some_and(|bytes| bytes.iter().take(4).all(|&b| b == 0)) {
+            if skip_sensitive
+                && available(format)
+                && read_bytes(format).is_some_and(|bytes| bytes.iter().take(4).all(|&b| b == 0))
+            {
                 tracing::debug!(format = name, "skipped a copy marked as not for history");
                 return Ok(None);
             }
@@ -437,25 +493,54 @@ fn pump_for(duration: Duration) {
     }
 }
 
-fn write(item_id: Uuid, flavors: &Flavors) -> Result<WriteReceipt, ClipboardError> {
+/// Whether "Sync across your devices" is on (`HKCU\Software\Microsoft\Clipboard\EnableCloudClipboard`).
+fn cloud_sync() -> Option<bool> {
+    let mut value: u32 = 0;
+    let mut size = size_of::<u32>() as u32;
+    let result = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Clipboard"),
+            w!("EnableCloudClipboard"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some((&raw mut value).cast()),
+            Some(&mut size),
+        )
+    };
+    // A missing value means the user never turned it on.
+    Some(result.is_ok() && value != 0)
+}
+
+fn write(
+    item_id: Uuid,
+    flavors: &Flavors,
+    kind: WriteKind,
+    add_to_history: bool,
+) -> Result<WriteReceipt, ClipboardError> {
+    let concealed = kind == WriteKind::Concealed;
     let package = DataPackage::new().map_err(|err| os_error(&err))?;
     package.SetText(&HSTRING::from(flavors.plain.as_str())).map_err(|err| os_error(&err))?;
-    if let Some(html) = &flavors.html {
+    if let Some(html) = flavors.html.as_ref().filter(|_| !concealed) {
         // RTF isn't written: Win+V history drops it (ADR 0004).
         let wrapped =
             HtmlFormatHelper::CreateHtmlFormat(&HSTRING::from(html.as_str())).map_err(|err| os_error(&err))?;
         package.SetHtmlFormat(&wrapped).map_err(|err| os_error(&err))?;
     }
+    let tracked = add_to_history && !concealed && Clipboard::IsHistoryEnabled().unwrap_or(false);
+    // Entries already in Win+V, so an older copy of the same text isn't taken for this one.
+    let before: Vec<String> = if tracked { history_ids() } else { Vec::new() };
     let options = ClipboardContentOptions::new().map_err(|err| os_error(&err))?;
-    options.SetIsAllowedInHistory(true).map_err(|err| os_error(&err))?;
+    // Concealed writes (the chain words, #46) never go into Win+V.
+    options.SetIsAllowedInHistory(add_to_history && !concealed).map_err(|err| os_error(&err))?;
     // Windows' own cloud clipboard shouldn't sync it a second time.
     options.SetIsRoamable(false).map_err(|err| os_error(&err))?;
     retry(|| Clipboard::SetContentWithOptions(&package, &options))?;
     retry(Clipboard::Flush)?;
     let change_count = Some(i64::from(unsafe { GetClipboardSequenceNumber() }));
 
-    let history_id = if Clipboard::IsHistoryEnabled().unwrap_or(false) {
-        let found = find_in_history(flavors.content_hash());
+    let history_id = if tracked {
+        let found = find_in_history(flavors.content_hash(), &before);
         if found.is_none() {
             tracing::debug!(item = %item_id, "written item not found in Win+V history");
         }
@@ -476,24 +561,41 @@ fn history_items() -> Vec<ClipboardHistoryItem> {
     }
 }
 
-/// Id of the newest history entry whose text has `hash` (ADR 0004: track by id).
-fn find_in_history(hash: ContentHash) -> Option<String> {
+fn history_ids() -> Vec<String> {
+    history_items().into_iter().take(25).filter_map(|item| item.Id().ok().map(|id| id.to_string())).collect()
+}
+
+/// Id of the history entry Pasta's write created: the newest one whose text has
+/// `hash` and that wasn't there `before` (ADR 0004: track by id). Expiry deletes
+/// by this id, so an older entry with the same text must not be picked. If Win+V
+/// only moved an existing entry up, that entry is the one.
+fn find_in_history(hash: ContentHash, before: &[String]) -> Option<String> {
     let started = Instant::now();
     let text_format = StandardDataFormats::Text().ok()?;
+    let mut existing = None;
     while started.elapsed() < HISTORY_LOOKUP {
-        for item in history_items().into_iter().take(3) {
+        for (index, item) in history_items().into_iter().take(3).enumerate() {
             let Ok(content) = item.Content() else { continue };
             if !content.Contains(&text_format).unwrap_or(false) {
                 continue;
             }
             let Ok(text) = content.GetTextAsync().and_then(|operation| operation.join()) else { continue };
-            if Flavors::plain(text.to_string()).content_hash() == hash {
-                return item.Id().ok().map(|id| id.to_string());
+            if Flavors::plain(text.to_string()).content_hash() != hash {
+                continue;
+            }
+            let Some(id) = item.Id().ok().map(|id| id.to_string()) else { continue };
+            if !before.contains(&id) {
+                return Some(id);
+            }
+            // Win+V may move an older entry with the same text to the top instead of
+            // adding one: accept it only once it's on top and wasn't before.
+            if index == 0 && before.first() != Some(&id) {
+                existing.get_or_insert(id);
             }
         }
         pump_for(Duration::from_millis(100));
     }
-    None
+    existing
 }
 
 fn expire(receipt: &WriteReceipt) -> Result<(), ClipboardError> {

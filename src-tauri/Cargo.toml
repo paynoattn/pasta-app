@@ -21,7 +21,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # Keep on the same minor as @tauri-apps/api and @tauri-apps/cli in package.json:
 # `tauri build` refuses to run when they differ.
-tauri = { version = "~2.12", features = ["tray-icon"] }
+tauri = { version = "~2.12", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-single-instance = "2"
 os_info = { version = "3", default-features = false }
 serde.workspace = true
@@ -38,6 +38,19 @@ pasta-net.workspace = true
 pasta-store.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
+# Plugins stay on the 2.x line with tauri; their 3.0 alphas need tauri 3.
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+# TypeScript types for the IPC views, written by `cargo test` (#28).
+ts-rs = "12"
+base64.workspace = true
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+# The clipboard panel's NSPanel (#38).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSPanel", "NSWindow", "NSResponder", "NSGraphics"] }
 
 [dev-dependencies]
 rusqlite.workspace = true

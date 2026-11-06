@@ -3,7 +3,9 @@ import { listen } from "@tauri-apps/api/event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   approveDevice,
+  chainQr,
   chainWords,
+  copyChainWords,
   createChain,
   declineDevice,
   getChain,
@@ -149,5 +151,30 @@ describe("onChainChanged", () => {
     expect(handler).toHaveBeenCalledTimes(2);
     expect(handler).toHaveBeenNthCalledWith(1, chain);
     expect(handler).toHaveBeenNthCalledWith(2, { ...chain, state: "none", fingerprint: null });
+  });
+});
+
+describe("chainQr", () => {
+  it("calls chain_qr and resolves to the SVG data URL", async () => {
+    const qr = "data:image/svg+xml;base64,AAAA";
+    vi.mocked(invoke).mockResolvedValue(qr);
+
+    await expect(chainQr()).resolves.toBe(qr);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("chain_qr");
+  });
+});
+
+describe("copyChainWords", () => {
+  it("calls copy_chain_words without arguments or a payload", async () => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+
+    await expect(copyChainWords()).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("copy_chain_words");
+  });
+
+  it("surfaces the backend's error", async () => {
+    vi.mocked(invoke).mockRejectedValue("no chain on this device");
+
+    await expect(copyChainWords()).rejects.toBe("no chain on this device");
   });
 });

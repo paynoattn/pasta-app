@@ -7,8 +7,8 @@
 use std::sync::Arc;
 
 use pasta_core::clip::Flavors;
-use pasta_core::clipboard::{ClipboardAdapter, ClipboardError};
-use pasta_core::engine::{self, EngineEvent, EngineHandle, Outbound};
+use pasta_core::clipboard::{ClipboardAdapter, ClipboardError, WriteKind};
+use pasta_core::engine::{self, EngineEvent, EngineHandle, ExpireRequest, Outbound};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -73,6 +73,23 @@ impl Node {
     pub fn write_local(&self, flavors: Flavors) {
         if let Some(engine) = &self.engine {
             engine.write_local(flavors);
+        }
+    }
+
+    /// Writes to this device's clipboard without syncing, and waits for the write.
+    pub async fn write_local_wait(&self, flavors: Flavors, kind: WriteKind) -> Result<(), String> {
+        match &self.engine {
+            Some(engine) => engine.write_local_wait(flavors, kind).await,
+            None => Err(ClipboardError::Stopped.to_string()),
+        }
+    }
+
+    /// Takes received items back out of the clipboard and its history (#33, #34).
+    /// Returns the ids the adapter couldn't expire.
+    pub async fn expire(&self, items: Vec<ExpireRequest>) -> Result<Vec<uuid::Uuid>, String> {
+        match &self.engine {
+            Some(engine) => engine.expire(items).await,
+            None => Err(ClipboardError::Stopped.to_string()),
         }
     }
 

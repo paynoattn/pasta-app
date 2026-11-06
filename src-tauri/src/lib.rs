@@ -1,109 +1,66 @@
 mod chain;
+mod clip_history;
+mod commands;
 mod config;
 mod diagnostics;
+mod expiry;
 mod logging;
+#[cfg(target_os = "macos")]
+mod macos_panel;
+mod prefs;
 mod runtime;
+mod setup;
+mod shortcuts;
+mod startup;
 mod storage;
 mod tray;
+mod ui;
+mod views;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use pasta_core::device::DeviceId;
 use pasta_store::KeyringStore;
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tokio::sync::Notify;
 
-use crate::chain::ChainView;
 use crate::config::ConfigStore;
-use crate::runtime::{PeerView, Runtime};
+use crate::runtime::Runtime;
 use crate::storage::StorageError;
+use crate::views::StatusView;
 
 /// How often a locked or missing keychain is tried again on its own.
 const KEYCHAIN_RETRY: Duration = Duration::from_secs(30);
-
-/// Build and protocol info shown in Settings › About.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AppInfo {
-    version: &'static str,
-    protocol_version: u16,
-}
-
-#[tauri::command]
-fn app_info() -> AppInfo {
-    AppInfo { version: env!("CARGO_PKG_VERSION"), protocol_version: pasta_core::PROTOCOL_VERSION }
-}
-
-/// Known devices, connected first. Updates arrive as the `peers-changed` event.
-#[tauri::command]
-fn list_peers(state: tauri::State<'_, AppState>) -> Vec<PeerView> {
-    state.runtime.get().map(|runtime| runtime.peers().iter().map(PeerView::from).collect()).unwrap_or_default()
-}
-
-fn runtime(state: &tauri::State<'_, AppState>) -> Result<Arc<Runtime>, String> {
-    state.runtime.get().cloned().ok_or_else(|| "Pasta is still starting (is the keychain locked?)".to_owned())
-}
-
-fn device_id(id: &str) -> Result<DeviceId, String> {
-    id.parse().map(DeviceId).map_err(|_| "not a device id".to_owned())
-}
-
-/// The sync chain as the developer panel shows it. Updates arrive as `chain-changed`.
-#[tauri::command]
-fn chain_status(state: tauri::State<'_, AppState>) -> Result<ChainView, String> {
-    Ok(runtime(&state)?.chain_view())
-}
-
-/// Starts a new chain. Returns its 24 words.
-#[tauri::command]
-async fn create_chain(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let words = runtime(&state)?.create_chain().await?;
-    Ok(words.as_str().to_owned())
-}
-
-#[tauri::command]
-async fn join_chain(state: tauri::State<'_, AppState>, words: String) -> Result<(), String> {
-    let words = zeroize::Zeroizing::new(words);
-    runtime(&state)?.join_chain(&words).await
-}
-
-#[tauri::command]
-async fn leave_chain(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    runtime(&state)?.leave_chain().await
-}
-
-/// The chain's 24 words, for adding another device.
-#[tauri::command]
-fn chain_words(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    Ok(runtime(&state)?.chain_words()?.as_str().to_owned())
-}
-
-/// `key` is the fingerprint shown for the device, which the user compared with its screen.
-#[tauri::command]
-async fn approve_device(state: tauri::State<'_, AppState>, device_id: String, key: String) -> Result<(), String> {
-    runtime(&state)?.approve_device(crate::device_id(&device_id)?, &key).await
-}
-
-#[tauri::command]
-async fn decline_device(state: tauri::State<'_, AppState>, device_id: String) -> Result<(), String> {
-    runtime(&state)?.decline_device(crate::device_id(&device_id)?).await
-}
-
-#[tauri::command]
-async fn remove_device(state: tauri::State<'_, AppState>, device_id: String) -> Result<(), String> {
-    runtime(&state)?.remove_device(crate::device_id(&device_id)?).await
-}
 
 pub(crate) struct AppState {
     pub runtime: OnceLock<Arc<Runtime>>,
     /// Wakes the startup loop to try the keychain again now.
     pub retry: Arc<Notify>,
+    /// What the tray shows before the runtime is up: the line, and whether to offer a retry.
+    boot: Mutex<(String, bool)>,
     quitting: AtomicBool,
     _log_guard: Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>,
+}
+
+impl AppState {
+    pub(crate) fn boot_status(&self) -> StatusView {
+        let (status, retry) = self.boot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        StatusView {
+            level: if retry || status.starts_with("Not syncing") { "error" } else { "warning" },
+            status,
+            warnings: Vec::new(),
+            this_device: None,
+            connected: 0,
+            retry,
+        }
+    }
+
+    fn set_boot(&self, app: &AppHandle, status: &str, retry: bool) {
+        *self.boot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (status.to_owned(), retry);
+        let _ = app.emit(runtime::STATUS_CHANGED, self.boot_status());
+    }
 }
 
 /// Stops syncing cleanly, then exits.
@@ -139,10 +96,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(AppState {
         runtime: OnceLock::new(),
         retry: Arc::clone(&retry),
+        boot: Mutex::new(("Starting…".to_owned(), false)),
         quitting: AtomicBool::new(false),
         _log_guard: Mutex::new(log_guard),
     });
     tray::create(app.handle())?;
+    ui::create_windows(app.handle())?;
 
     let handle = app.handle().clone();
     tauri::async_runtime::spawn(start(handle, data_dir, log_dir, retry));
@@ -160,6 +119,7 @@ async fn start(handle: AppHandle, data_dir: PathBuf, log_dir: PathBuf, retry: Ar
             Ok(Ok(storage)) => break storage,
             Ok(Err(StorageError::Locked(err))) => {
                 tracing::warn!(error = %err, "can't open the keychain; trying again");
+                handle.state::<AppState>().set_boot(&handle, "Waiting for the keychain", true);
                 tray::update(
                     &handle,
                     &tray::TrayView {
@@ -193,9 +153,21 @@ async fn start(handle: AppHandle, data_dir: PathBuf, log_dir: PathBuf, retry: Ar
         Ok(runtime) => {
             runtime.refresh_tray(&handle);
             let view = runtime.chain_view();
+            let current = runtime.config.get();
+            shortcuts::register_configured(&handle, current.panel_shortcut.as_deref());
+            let checks = Arc::clone(&runtime);
+            startup::spawn_checks(handle.clone(), move || {
+                let updates = checks.config.get().updates;
+                (updates.automatic, updates.check_hours)
+            });
+            let first_run = !current.setup_done && view.state == "none";
             let _ = handle.state::<AppState>().runtime.set(runtime);
             // A window opened while the keychain was locked asked too early; tell it now.
             let _ = handle.emit(runtime::CHAIN_CHANGED, view);
+            let _ = handle.emit(runtime::SETTINGS_CHANGED, views::SettingsView::new(&current));
+            if first_run {
+                ui::open_setup(&handle);
+            }
         }
         Err(err) => not_syncing(&handle, &err),
     }
@@ -203,37 +175,41 @@ async fn start(handle: AppHandle, data_dir: PathBuf, log_dir: PathBuf, retry: Ar
 
 fn not_syncing(handle: &AppHandle, err: &str) {
     tracing::error!(error = %err, "couldn't start syncing");
-    tray::update(handle, &tray::TrayView { status: format!("Not syncing: {err}"), ..Default::default() });
+    let status = format!("Not syncing: {err}");
+    handle.state::<AppState>().set_boot(handle, &status, false);
+    tray::update(handle, &tray::TrayView { status, ..Default::default() });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let mut context = tauri::generate_context!();
+    let mut builder = tauri::Builder::default()
         // Must be the first plugin: a second launch exits before anything else starts.
-        .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tracing::info!("Pasta was launched again; the running instance stays");
+            ui::open_settings(app, None);
         }))
-        .invoke_handler(tauri::generate_handler![
-            app_info,
-            list_peers,
-            chain_status,
-            create_chain,
-            join_chain,
-            leave_chain,
-            chain_words,
-            approve_device,
-            decline_device,
-            remove_device,
-        ])
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+    // Only builds with an update key can update themselves (#47, #58).
+    if let Some(updater) = startup::updater_config() {
+        context.config_mut().plugins.0.insert("updater".into(), updater);
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+    let app = builder
+        .invoke_handler(all_commands!())
         .setup(setup)
         .on_window_event(|window, event| {
-            // Windows only hide: Pasta keeps running in the tray.
-            if let WindowEvent::CloseRequested { api, .. } = event {
+            // Windows only hide: Pasta keeps running in the tray. The setup window is
+            // made again when needed.
+            if let WindowEvent::CloseRequested { api, .. } = event
+                && window.label() != ui::SETUP
+            {
                 api.prevent_close();
                 let _ = window.hide();
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building the Pasta app");
     app.run(|app, event| {
         if let RunEvent::ExitRequested { api, code, .. } = event {

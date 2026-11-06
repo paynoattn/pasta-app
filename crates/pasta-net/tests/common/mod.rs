@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use pasta_core::config::{KnownPeer, Settings};
 use pasta_core::device::{DeviceId, DeviceInfo, UnixMillis};
+use pasta_core::remote::{DeviceSettings, SettingsVersion};
 use pasta_core::testing::FakeClipboard;
 use pasta_crypto::membership::{Candidate, Membership};
 use pasta_crypto::{ChainKeys, DeviceKey};
@@ -139,6 +140,8 @@ pub struct Peer {
     pub clipboard: FakeClipboard,
     pub discovery: StaticDiscovery,
     pub settings: watch::Sender<Settings>,
+    /// What this peer announces to the others (#31).
+    pub device_settings: watch::Sender<DeviceSettings>,
     pub addr: SocketAddr,
     pub events: mpsc::UnboundedReceiver<NodeEvent>,
     node: Option<Node>,
@@ -151,6 +154,8 @@ pub struct PeerBuilder {
     known: BTreeMap<DeviceId, KnownPeer>,
     chain: ChainChoice,
     timing: Timing,
+    peer_settings: BTreeMap<DeviceId, DeviceSettings>,
+    device_settings: Option<DeviceSettings>,
 }
 
 impl PeerBuilder {
@@ -162,11 +167,27 @@ impl PeerBuilder {
             known: BTreeMap::new(),
             chain: ChainChoice::Member(TestChain::shared()),
             timing: fast_timing(),
+            peer_settings: BTreeMap::new(),
+            device_settings: None,
         }
     }
 
     pub fn timing(mut self, timing: Timing) -> Self {
         self.timing = timing;
+        self
+    }
+
+    /// The settings members last announced, restored from the store (#31): what
+    /// a device knows about peers before they announce on this connection.
+    pub fn stored_peer_settings(mut self, settings: impl IntoIterator<Item = (DeviceId, DeviceSettings)>) -> Self {
+        self.peer_settings = settings.into_iter().collect();
+        self
+    }
+
+    /// What this peer announces about itself from the start (#31), instead of
+    /// the default for its mode.
+    pub fn announces(mut self, settings: DeviceSettings) -> Self {
+        self.device_settings = Some(settings);
         self
     }
 
@@ -206,13 +227,21 @@ impl PeerBuilder {
         let discovery = StaticDiscovery::new(vec![SocketAddr::new(LOOPBACK, 0)], Vec::new());
         let verifier = StaticVerifier::new()
             .with(LOOPBACK, NodeIdentity { node_id: LOOPBACK_NODE.into(), name: "loopback".into() });
+        let (device_settings_tx, device_settings_rx) = watch::channel(self.device_settings.unwrap_or(DeviceSettings {
+            mode: self.settings.mode,
+            ttl_secs: None,
+            paused_until: None,
+            version: SettingsVersion::initial(device.id),
+        }));
         let (settings_tx, settings_rx) = watch::channel(self.settings);
         let options = NetworkOptions {
             device: device.clone(),
             device_key: Arc::clone(&key),
             chain,
             settings: settings_rx,
+            device_settings: device_settings_rx,
             known_peers: self.known,
+            peer_settings: self.peer_settings,
             timing: self.timing,
         };
         let (node, events) =
@@ -227,6 +256,7 @@ impl PeerBuilder {
             clipboard,
             discovery,
             settings: settings_tx,
+            device_settings: device_settings_tx,
             addr: status.listening[0],
             events,
             node: Some(node),

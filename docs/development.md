@@ -102,15 +102,24 @@ cargo run -p pasta-app --features tauri/custom-protocol
 - Since M2, settings, known peers and the chain's member list live in `pasta.db`, every
   value encrypted with a key from the OS keychain (service `com.cpawlukiewicz.pasta-app`,
   account `device-secrets`; ADR 0008). The first M2 start imports M1's `config.json` and
-  deletes it. Settings can't be hand-edited any more until the settings UI (#29);
+  deletes it. Settings are changed in the Settings window (#29);
   `PASTA_LOG=pasta_net=debug,pasta_core=debug` overrides the log level. Logs carry item
   ids, sizes and 12-digit keyed hashes, never clipboard text.
 - To start over on a machine, quit Pasta, delete `pasta.db` and the keychain entry.
 - Tray → **Copy diagnostics** puts a redacted report on the clipboard (not synced): no
   device names, tailnet addresses, node ids or chain id, so it can go in a public issue.
-- Tray → **Sync chain…** opens the developer panel (until #43 / #46): create a chain and
-  show its 24 words, join one by typing them, approve / decline devices waiting to join,
-  remove members, leave. Nothing syncs until the device is an approved member of a chain.
+- A left click on the tray icon opens the popover (macOS) or flyout (Windows); a right
+  click opens a small native menu. The setup flow opens on the first start without a
+  chain and again from Settings › About. Settings › Devices creates or joins a chain,
+  adds devices (words + QR) and approves them. Nothing syncs until the device is an
+  approved member of a chain.
+- macOS: ⇧⌘V opens the clipboard panel. Pasting into other apps needs Privacy &
+  Security › Accessibility for the dev build; it's tied to the signature, so sign dev
+  builds with a stable identity (below) or grant it again after each rebuild.
+- The IPC types in `src/ipc/bindings/` are generated: after changing a type in
+  `src-tauri/src/views.rs`, run `cargo test -p pasta-app` and commit the result.
+- Builds update themselves only when `PASTA_UPDATER_PUBKEY` (and optionally
+  `PASTA_UPDATER_ENDPOINT`) is set at build time (#47, #58).
 - A locked keychain shows "Waiting for the keychain" in the tray, with **Try the keychain
   again**; Pasta also retries every 30 s. Over SSH the macOS login keychain is
   unavailable ("User interaction is not allowed").

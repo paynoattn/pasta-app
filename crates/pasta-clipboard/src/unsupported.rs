@@ -22,6 +22,6 @@ impl ClipboardAdapter for Unsupported {
     }
 
     fn status(&self) -> ClipboardStatus {
-        ClipboardStatus { history_enabled: None, unsupported: Some("KDE Plasma support arrives in M4".into()) }
+        ClipboardStatus { unsupported: Some("KDE Plasma support arrives in M4".into()), ..ClipboardStatus::default() }
     }
 }

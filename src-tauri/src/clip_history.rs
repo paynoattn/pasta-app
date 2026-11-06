@@ -25,7 +25,8 @@ use crate::views::{HTML_PREVIEW_BYTES, HistoryFilterView, HistoryItemView, PREVI
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum PasteOutcome {
-    /// Written and pasted into the app that was in front.
+    /// Written and pasted into the app that was in front. Only macOS pastes so far.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Pasted,
     /// Written to the clipboard only: Pasta may not post keystrokes (Accessibility is off).
     Copied,

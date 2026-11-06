@@ -1,9 +1,10 @@
-//! The MVP's tray / menu-bar item with a plain native menu (#17). The real
-//! popover and flyout replace it in #42.
+//! The tray / menu-bar icon (#17, #42). A left click opens the popover
+//! (macOS) or flyout (Windows) in the `tray` window; a right click shows a
+//! small native menu, which also keeps Pasta usable if the webview fails.
 
 use pasta_net::network::PeerSnapshot;
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use tauri::tray::TrayIconBuilder;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
 use crate::AppState;
@@ -25,8 +26,9 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip(tooltip(&view))
         .menu(&menu(app, &view)?)
-        .show_menu_on_left_click(true)
-        .on_menu_event(on_menu_event);
+        .show_menu_on_left_click(false)
+        .on_menu_event(on_menu_event)
+        .on_tray_icon_event(on_tray_event);
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
@@ -55,6 +57,16 @@ pub fn peer_label(peer: &PeerSnapshot) -> String {
     if peer.connected { format!("● {}", peer.name) } else { format!("○ {} · offline", peer.name) }
 }
 
+fn on_tray_event(tray: &tauri::tray::TrayIcon, event: TrayIconEvent) {
+    if let TrayIconEvent::Click { rect, button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+        let app = tray.app_handle();
+        let scale = app.primary_monitor().ok().flatten().map_or(1.0, |monitor| monitor.scale_factor());
+        let position = rect.position.to_physical::<f64>(scale);
+        let size = rect.size.to_physical::<f64>(scale);
+        crate::ui::toggle_tray(app, Some((position.x, position.y, size.width, size.height)));
+    }
+}
+
 fn menu(app: &AppHandle, view: &TrayView) -> tauri::Result<Menu<Wry>> {
     let mut items: Vec<Box<dyn IsMenuItem<Wry>>> = Vec::new();
     let label = |text: &str| MenuItem::new(app, text, false, None::<&str>);
@@ -73,8 +85,11 @@ fn menu(app: &AppHandle, view: &TrayView) -> tauri::Result<Menu<Wry>> {
     if view.retry {
         items.push(Box::new(MenuItem::with_id(app, "retry", "Try the keychain again", true, None::<&str>)?));
     }
-    items.push(Box::new(MenuItem::with_id(app, "chain", "Sync chain…", true, None::<&str>)?));
-    items.push(Box::new(CheckMenuItem::with_id(app, "pause", "Pause syncing", true, view.paused, None::<&str>)?));
+    if cfg!(target_os = "macos") {
+        items.push(Box::new(MenuItem::with_id(app, "panel", "Open Clipboard", true, None::<&str>)?));
+    }
+    items.push(Box::new(MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?));
+    items.push(Box::new(CheckMenuItem::with_id(app, "pause", "Pause for 1 hour", true, view.paused, None::<&str>)?));
     items.push(Box::new(MenuItem::with_id(app, "diagnostics", "Copy diagnostics", true, None::<&str>)?));
     items.push(Box::new(MenuItem::with_id(app, "logs", "Open log folder", true, None::<&str>)?));
     items.push(Box::new(MenuItem::with_id(app, "about", "About Pasta", true, None::<&str>)?));
@@ -104,18 +119,14 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
             }
         }
         "retry" => app.state::<AppState>().retry.notify_one(),
-        // The settings window holds the developer chain panel until #43 / #46.
-        "about" | "chain" => {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }
+        "panel" => crate::ui::toggle_panel(app),
+        "settings" => crate::ui::open_settings(app, None),
+        "about" => crate::ui::open_settings(app, Some("about")),
         _ => {}
     }
 }
 
-fn open_folder(dir: &std::path::Path) {
+pub(crate) fn open_folder(dir: &std::path::Path) {
     let opener = if cfg!(windows) {
         "explorer"
     } else if cfg!(target_os = "macos") {

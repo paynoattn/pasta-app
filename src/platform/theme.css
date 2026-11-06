@@ -1,0 +1,200 @@
+/*
+ * Theme tokens per OS (#28), keyed off `data-platform` on <html>, with light
+ * and dark following the OS (`prefers-color-scheme`).
+ *
+ * macOS: system font, grouped inset lists, segmented controls, blue accent.
+ * Windows 11 Fluent: Segoe UI Variable, cards on a mica-like background, toggles, InfoBar.
+ * KDE Breeze: Noto Sans, a plain form layout, Breeze blue, Apply / Reset buttons.
+ */
+
+:root {
+  color-scheme: light dark;
+  --font: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Noto Sans Mono", monospace;
+  --font-size: 13px;
+  --font-size-small: 11px;
+  --font-size-title: 20px;
+  --bg: #ececec;
+  --sidebar: #e3e3e3;
+  --surface: #ffffff;
+  --surface-2: #f5f5f7;
+  --surface-hover: rgba(0, 0, 0, 0.05);
+  --border: rgba(0, 0, 0, 0.1);
+  --text: #1d1d1f;
+  --text-2: #6e6e73;
+  --accent: #007aff;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(0, 122, 255, 0.12);
+  --danger: #d70015;
+  --warning: #b25000;
+  --warning-soft: #fff4e5;
+  --error-soft: #fdecea;
+  --success: #1a7f37;
+  --success-soft: #e8f5e9;
+  --info-soft: #e8f1fd;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --control-h: 24px;
+  --gap: 12px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.08);
+  --focus: 0 0 0 3px rgba(0, 122, 255, 0.35);
+  --popover-bg: rgba(246, 246, 246, 0.92);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e1e;
+    --sidebar: #262626;
+    --surface: #2c2c2e;
+    --surface-2: #232325;
+    --surface-hover: rgba(255, 255, 255, 0.06);
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #f5f5f7;
+    --text-2: #a1a1a6;
+    --accent: #0a84ff;
+    --accent-soft: rgba(10, 132, 255, 0.2);
+    --danger: #ff453a;
+    --warning: #ff9f0a;
+    --warning-soft: rgba(255, 159, 10, 0.14);
+    --error-soft: rgba(255, 69, 58, 0.16);
+    --success: #32d74b;
+    --success-soft: rgba(50, 215, 75, 0.14);
+    --info-soft: rgba(10, 132, 255, 0.16);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 24px rgba(0, 0, 0, 0.4);
+    --popover-bg: rgba(40, 40, 42, 0.92);
+  }
+}
+
+/* Windows 11 Fluent */
+:root[data-platform="windows"] {
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-size: 14px;
+  --font-size-small: 12px;
+  --font-size-title: 28px;
+  --bg: #f3f3f3;
+  --sidebar: #f3f3f3;
+  --surface: #fbfbfb;
+  --surface-2: #f9f9f9;
+  --border: rgba(0, 0, 0, 0.0578);
+  --text: #1a1a1a;
+  --text-2: #5d5d5d;
+  --accent: #005fb8;
+  --accent-soft: rgba(0, 95, 184, 0.1);
+  --radius: 8px;
+  --radius-sm: 4px;
+  --control-h: 32px;
+  --gap: 4px;
+  --shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+  --focus: 0 0 0 2px #1a1a1a;
+  --popover-bg: rgba(243, 243, 243, 0.96);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-platform="windows"] {
+    --bg: #202020;
+    --sidebar: #202020;
+    --surface: #2b2b2b;
+    --surface-2: #272727;
+    --border: rgba(255, 255, 255, 0.0698);
+    --text: #ffffff;
+    --text-2: #c5c5c5;
+    --accent: #60cdff;
+    --accent-text: #000000;
+    --accent-soft: rgba(96, 205, 255, 0.14);
+    --focus: 0 0 0 2px #ffffff;
+    --popover-bg: rgba(44, 44, 44, 0.96);
+  }
+}
+
+/* KDE Plasma Breeze */
+:root[data-platform="linux"] {
+  --font: "Noto Sans", "Cantarell", system-ui, sans-serif;
+  --font-size: 13px;
+  --font-size-title: 18px;
+  --bg: #eff0f1;
+  --sidebar: #ffffff;
+  --surface: #fcfcfc;
+  --surface-2: #f5f6f7;
+  --border: #c6c8ca;
+  --text: #232629;
+  --text-2: #707d8a;
+  --accent: #3daee9;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(61, 174, 233, 0.2);
+  --radius: 5px;
+  --radius-sm: 3px;
+  --control-h: 30px;
+  --shadow: none;
+  --focus: 0 0 0 2px #3daee9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-platform="linux"] {
+    --bg: #202326;
+    --sidebar: #292c30;
+    --surface: #292c30;
+    --surface-2: #232629;
+    --border: #4d4d4d;
+    --text: #fcfcfc;
+    --text-2: #a1a9b1;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font);
+  font-size: var(--font-size);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* Text the user may want to select: words, keys, diagnostics. */
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--text-2);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Transparent windows (tray, panel) draw their own background. */
+html.transparent,
+html.transparent body {
+  background: transparent;
+}

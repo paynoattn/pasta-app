@@ -1,0 +1,126 @@
+/* The tray popover / flyout (#42). The window is transparent; this draws the rounded card. */
+
+.tray {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--popover-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  backdrop-filter: blur(30px) saturate(1.6);
+  -webkit-backdrop-filter: blur(30px) saturate(1.6);
+}
+
+[data-platform="windows"] .tray {
+  border-radius: 8px;
+}
+
+.tray__status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 14px 10px;
+}
+
+.tray__status .dot {
+  margin-top: 5px;
+}
+
+.tray__status-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.tray__warning {
+  color: var(--warning);
+  font-size: var(--font-size-small);
+  margin-top: 2px;
+}
+
+.tray__section {
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.tray__label {
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+
+.tray__items {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tray__list {
+  list-style: none;
+  margin: 0 -6px;
+  padding: 0;
+}
+
+.tray__item {
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 6px;
+  border-radius: var(--radius-sm);
+}
+
+.tray__item:hover {
+  background: var(--surface-hover);
+}
+
+.tray__item-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tray__item-meta {
+  font-size: var(--font-size-small);
+}
+
+.tray__empty {
+  margin: 4px 0;
+}
+
+.tray__actions {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  padding: 6px;
+}
+
+.tray__action {
+  font: inherit;
+  display: flex;
+  justify-content: space-between;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.tray__action:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.tray__action:hover:not(:disabled) .muted {
+  color: inherit;
+}
+
+.tray__action:disabled {
+  opacity: 0.5;
+}

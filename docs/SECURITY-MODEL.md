@@ -79,7 +79,7 @@ Stated plainly so nobody relies on Pasta for more than it does.
 - **Metadata in the clear inside WireGuard.** `hello` carries the device name, OS and
   app version; heartbeats and acks carry ids. ADR 0009 explains why there's no TLS.
 - **Copies we can't reach.** Strings the OS, the WebView or the allocator copied (e.g. on
-  reallocation) aren't wiped; the words shown in the developer panel live in the WebView.
+  reallocation) aren't wiped; the words shown in Settings and the Add Device sheet live in the WebView.
 - **Restart forgets replay state.** The seen-message cache is in memory; replays across a
   restart are still bounded by the 5-minute window and the engine's item-id dedupe.
 

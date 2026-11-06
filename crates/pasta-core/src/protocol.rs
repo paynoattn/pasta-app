@@ -25,6 +25,7 @@ use uuid::Uuid;
 use crate::chain::MemberList;
 use crate::clip::{ContentHash, Flavors, SourceApp};
 use crate::device::{DeviceId, DeviceInfo, UnixMillis};
+use crate::remote::{ConfigUpdate, DeviceSettings};
 use crate::wire::{Blob, Key32, Nonce24, Sig64};
 
 /// Major version of the wire protocol. Peers with another version refuse the handshake.
@@ -35,9 +36,10 @@ pub const PROTOCOL_VERSION: u16 = 2;
 /// Default limit for one clipboard item, all flavors together.
 pub const DEFAULT_MAX_ITEM_BYTES: usize = 1024 * 1024;
 
-/// Message types reserved for later milestones: remote config (#31). This
-/// build rejects them as unknown.
-pub const RESERVED_TYPES: &[&str] = &["config_update"];
+/// Envelope types reserved for later milestones; this build rejects them as
+/// unknown. None at the moment: remote config (#31), once reserved here,
+/// travels inside `encrypted` as [`Inner::ConfigUpdate`].
+pub const RESERVED_TYPES: &[&str] = &[];
 
 /// Upper bound for one encoded frame given the item limit: JSON escaping can
 /// grow text up to six times (`\u0000`) and base64 of the ciphertext adds a
@@ -95,6 +97,10 @@ pub enum Inner {
     Clip(Clip),
     /// The sender's view of the chain's members (#22).
     Members(MemberList),
+    /// The sender's own mode and expiry (#31). Sent on connect and on every change.
+    Settings(DeviceSettings),
+    /// A member changing the receiving device's mode and expiry (#31).
+    ConfigUpdate(ConfigUpdate),
 }
 
 impl Inner {
@@ -102,6 +108,8 @@ impl Inner {
         match self {
             Self::Clip(_) => "clip",
             Self::Members(_) => "members",
+            Self::Settings(_) => "settings",
+            Self::ConfigUpdate(_) => "config_update",
         }
     }
 
@@ -120,6 +128,14 @@ impl Inner {
                 } else {
                     Err(DecodeError::Invalid("member list over the size limits"))
                 }
+            }
+            Self::Settings(settings) => settings.validate().map_err(DecodeError::Invalid),
+            Self::ConfigUpdate(update) => {
+                // Updates are never relayed: the member that made the change sends it.
+                if update.issuer() != from_device {
+                    return Err(DecodeError::Invalid("config_update issuer differs from the sender"));
+                }
+                update.validate().map_err(DecodeError::Invalid)
             }
         }
     }
@@ -392,6 +408,7 @@ fn parse_body<T: DeserializeOwned>(body: Option<&RawValue>) -> Result<T, DecodeE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::device::SyncMode;
     use crate::wire::Bytes;
 
     fn device() -> DeviceInfo {
@@ -640,6 +657,58 @@ mod tests {
             caps.capabilities = vec!["c".repeat(max + 1)];
             assert!(matches!(decode(caps, ack), Err(DecodeError::Invalid(_))), "a long capability");
         }
+    }
+
+    #[test]
+    fn settings_and_config_updates_validate_on_the_wire() {
+        let issuer = DeviceId::random();
+        let update = |by: DeviceId, ttl_secs: Option<u64>| {
+            let version = crate::remote::SettingsVersion { counter: 1, at: UnixMillis(2), by };
+            ConfigUpdate {
+                target: DeviceId::random(),
+                mode: SyncMode::Both,
+                ttl_secs,
+                version,
+                signature: Bytes([1; 64]),
+            }
+        };
+
+        // Both travel inside `encrypted` as their own snake_case kind.
+        let settings = DeviceSettings {
+            mode: SyncMode::Receive,
+            ttl_secs: Some(300),
+            paused_until: None,
+            version: crate::remote::SettingsVersion::initial(issuer),
+        };
+        let value = serde_json::to_value(Inner::Settings(settings)).unwrap();
+        assert_eq!(value["type"], "settings");
+        assert_eq!(serde_json::from_value::<Inner>(value).unwrap(), Inner::Settings(settings));
+        let sent = update(issuer, None);
+        let value = serde_json::to_value(Inner::ConfigUpdate(sent.clone())).unwrap();
+        assert_eq!(value["type"], "config_update");
+        assert_eq!(serde_json::from_value::<Inner>(value).unwrap(), Inner::ConfigUpdate(sent));
+
+        // The issuer (version.by) must be the sender; updates are never relayed.
+        let relayed = Inner::ConfigUpdate(update(DeviceId::random(), None));
+        assert!(matches!(relayed.validate(issuer, DEFAULT_MAX_ITEM_BYTES), Err(DecodeError::Invalid(_))));
+        assert!(Inner::ConfigUpdate(update(issuer, None)).validate(issuer, DEFAULT_MAX_ITEM_BYTES).is_ok());
+
+        // Bad TTLs are rejected wherever they came from.
+        for ttl_secs in [Some(0), Some(crate::remote::MAX_TTL_SECS + 1)] {
+            let bad = Inner::ConfigUpdate(update(issuer, ttl_secs));
+            assert!(bad.validate(issuer, DEFAULT_MAX_ITEM_BYTES).is_err(), "{ttl_secs:?}");
+        }
+
+        // Settings carry the same TTL rule.
+        let mut bad_settings = DeviceSettings {
+            mode: SyncMode::Both,
+            ttl_secs: Some(0),
+            paused_until: None,
+            version: crate::remote::SettingsVersion::initial(issuer),
+        };
+        assert!(Inner::Settings(bad_settings).validate(issuer, DEFAULT_MAX_ITEM_BYTES).is_err());
+        bad_settings.ttl_secs = Some(300);
+        assert!(Inner::Settings(bad_settings).validate(issuer, DEFAULT_MAX_ITEM_BYTES).is_ok());
     }
 
     #[test]

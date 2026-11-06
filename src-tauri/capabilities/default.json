@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "Capability for every Pasta window: settings, setup, tray popover and clipboard panel",
+  "windows": ["main", "setup", "tray", "panel"],
   "permissions": ["core:default"]
 }

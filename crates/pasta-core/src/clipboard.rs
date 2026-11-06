@@ -5,6 +5,7 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::clip::{Flavors, SourceApp};
@@ -21,13 +22,48 @@ pub struct LocalCopy {
 pub type CopySink = Box<dyn Fn(LocalCopy) + Send + Sync>;
 
 /// What an adapter needs to find a written item again when it expires.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Persisted with the expiry deadlines (#33), so it carries no content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WriteReceipt {
     pub item_id: Uuid,
     /// Windows: the Win+V history entry id, if it was found after writing.
+    #[serde(default)]
     pub history_id: Option<String>,
-    /// macOS: `NSPasteboard.changeCount` right after the write.
+    /// macOS: `NSPasteboard.changeCount` right after the write. Windows: the
+    /// clipboard sequence number.
+    #[serde(default)]
     pub change_count: Option<i64>,
+}
+
+/// How an adapter writes and filters, from the user's settings (#36, #41).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdapterOptions {
+    /// Skip copies marked concealed / transient and copies from known password managers.
+    pub skip_sensitive: bool,
+    /// Lowercase app ids whose copies are skipped before their text is read.
+    pub excluded_apps: Vec<String>,
+    /// Windows: received items also go into Win+V history.
+    pub add_to_history: bool,
+    /// macOS: items Pasta writes may travel on through Universal Clipboard,
+    /// and Universal Clipboard items are reported as copies.
+    pub icloud_bridge: bool,
+}
+
+impl Default for AdapterOptions {
+    fn default() -> Self {
+        Self { skip_sensitive: true, excluded_apps: Vec::new(), add_to_history: true, icloud_bridge: false }
+    }
+}
+
+/// How one write should land.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WriteKind {
+    /// A received item, or one picked from the history: lands in the OS history.
+    #[default]
+    Normal,
+    /// Secrets such as the sync chain words (#46): marked concealed, kept out
+    /// of every clipboard history and never synced.
+    Concealed,
 }
 
 /// Facts about the platform clipboard worth showing the user.
@@ -35,6 +71,9 @@ pub struct WriteReceipt {
 pub struct ClipboardStatus {
     /// Windows: whether Win+V history is turned on. `None` where it doesn't apply.
     pub history_enabled: Option<bool>,
+    /// Windows: whether "Sync across your devices" (cloud clipboard) is on, which
+    /// can show items twice (#45). `None` where it doesn't apply.
+    pub cloud_sync: Option<bool>,
     /// Set when the adapter can't work on this platform yet.
     pub unsupported: Option<String>,
 }
@@ -89,6 +128,18 @@ pub trait ClipboardAdapter: Send + Sync + 'static {
     /// Removes a written item from the OS history, and clears the clipboard if
     /// it is still current. An item that is already gone counts as expired.
     fn expire(&self, receipt: &WriteReceipt) -> Result<(), ClipboardError>;
+
+    /// Like [`ClipboardAdapter::write`], for writes that must not land in any history.
+    /// Adapters that can't mark a write concealed refuse it.
+    fn write_concealed(&self, item_id: Uuid, flavors: &Flavors) -> Result<WriteReceipt, ClipboardError> {
+        let _ = (item_id, flavors);
+        Err(ClipboardError::Unsupported)
+    }
+
+    /// Applies new privacy and write options. Called at start and on every change.
+    fn configure(&self, options: &AdapterOptions) {
+        let _ = options;
+    }
 
     fn status(&self) -> ClipboardStatus {
         ClipboardStatus::default()

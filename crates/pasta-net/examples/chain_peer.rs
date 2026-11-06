@@ -107,12 +107,20 @@ async fn main() {
     println!("device {} key {}", device.id, pasta_crypto::keys::short(&key.public()));
 
     let (_settings_tx, settings_rx) = watch::channel(Settings::default());
+    let (_device_settings_tx, device_settings_rx) = watch::channel(pasta_core::remote::DeviceSettings {
+        mode: Default::default(),
+        ttl_secs: None,
+        paused_until: None,
+        version: pasta_core::remote::SettingsVersion::initial(device.id),
+    });
     let options = NetworkOptions {
         device: device.clone(),
         device_key: key,
         chain,
         settings: settings_rx,
+        device_settings: device_settings_rx,
         known_peers: Default::default(),
+        peer_settings: Default::default(),
         timing: Timing::default(),
     };
     let clipboard = FakeClipboard::new();

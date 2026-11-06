@@ -23,6 +23,16 @@ use zeroize::Zeroizing;
 const MIGRATIONS: &[&str] = &[
     // 1: key/value rows for settings, peers and the chain's member list.
     "CREATE TABLE kv (name TEXT PRIMARY KEY NOT NULL, nonce BLOB NOT NULL, value BLOB NOT NULL) STRICT;",
+    // 2: the macOS clipboard history (#37). Times are plain for ordering and pruning;
+    // everything else is in the sealed value. See `crate::history`.
+    "CREATE TABLE history (
+        item_id TEXT PRIMARY KEY NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER,
+        nonce BLOB NOT NULL,
+        value BLOB NOT NULL
+     ) STRICT;
+     CREATE INDEX history_by_time ON history (created_at DESC);",
 ];
 
 const CHECK_ROW: &str = "check";
@@ -84,11 +94,15 @@ impl Database {
         &self.path
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, Connection> {
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn sqlite(&self, source: rusqlite::Error) -> DbError {
+    pub(crate) fn key(&self) -> &Secret32 {
+        &self.key
+    }
+
+    pub(crate) fn sqlite(&self, source: rusqlite::Error) -> DbError {
         DbError::Sqlite { path: self.path.clone(), source }
     }
 
@@ -172,7 +186,7 @@ mod tests {
         let canary = "s3cr3t-clipboard-canary";
         {
             let db = Database::open(&path, key()).unwrap();
-            assert_eq!(db.schema_version().unwrap(), 1);
+            assert_eq!(db.schema_version().unwrap(), 2);
             db.put("config", &serde_json::json!({ "name": canary })).unwrap();
             assert_eq!(db.get::<serde_json::Value>("missing").unwrap(), None);
         }

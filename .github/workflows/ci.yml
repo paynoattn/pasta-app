@@ -59,6 +59,17 @@ jobs:
         run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      # `cargo test` rewrites the TypeScript IPC types (#28); they must match what's committed.
+      - name: TypeScript bindings are up to date
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain -- src/ipc/bindings)" ]; then
+            git status --porcelain -- src/ipc/bindings
+            git diff -- src/ipc/bindings
+            echo "::error::src/ipc/bindings is out of date: run cargo test -p pasta-app and commit the result"
+            exit 1
+          fi
 
   bundle:
     name: Unsigned build (${{ matrix.os }})

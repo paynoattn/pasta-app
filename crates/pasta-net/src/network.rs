@@ -36,9 +36,11 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use pasta_core::chain::MemberList;
 use pasta_core::config::{KnownPeer, Settings};
+use pasta_core::device::SyncMode;
 use pasta_core::device::{DeviceId, DeviceInfo, UnixMillis};
 use pasta_core::engine::Outbound;
 use pasta_core::protocol::{Ack, Auth, Clip, DecodeError, Envelope, Hello, Inner, Message, Ping, Pong, Role};
+use pasta_core::remote::{ConfigUpdate, DeviceSettings, SettingsVersion};
 use pasta_crypto::DeviceKey;
 use pasta_crypto::membership::Root;
 use tokio::sync::{Notify, mpsc, oneshot, watch};
@@ -94,6 +96,10 @@ pub struct PeerSnapshot {
     pub latency: Option<Duration>,
     pub last_seen: UnixMillis,
     pub trust: PeerTrust,
+    /// The mode and expiry the device last announced (#31).
+    pub settings: Option<DeviceSettings>,
+    /// The tailnet address it is connected from, while connected.
+    pub address: Option<std::net::IpAddr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +146,17 @@ pub enum NetEvent {
     },
     /// Another member removed this device. The network has already left the chain.
     RemovedFromChain,
+    /// A member announced newer settings for itself (#31); persist them.
+    PeerSettings {
+        device_id: DeviceId,
+        settings: DeviceSettings,
+    },
+    /// A member asked this device to change its mode and expiry (#31). Already
+    /// checked: sent by an approved member, signed with its key, for this device.
+    ConfigUpdate {
+        from: DeviceId,
+        update: ConfigUpdate,
+    },
 }
 
 pub struct NetworkOptions {
@@ -148,11 +165,18 @@ pub struct NetworkOptions {
     /// `None` until the device creates or joins a chain; nothing syncs without one.
     pub chain: Option<ChainSetup>,
     pub settings: watch::Receiver<Settings>,
+    /// This device's mode and expiry as announced to members (#31).
+    pub device_settings: watch::Receiver<DeviceSettings>,
     pub known_peers: BTreeMap<DeviceId, KnownPeer>,
+    /// The settings members last announced, from the store.
+    pub peer_settings: BTreeMap<DeviceId, DeviceSettings>,
     pub timing: Timing,
 }
 
 type Senders = Arc<RwLock<HashMap<DeviceId, mpsc::Sender<Envelope>>>>;
+type PeerSettings = Arc<RwLock<HashMap<DeviceId, DeviceSettings>>>;
+/// Peers that announced their settings on their current connection.
+type Announced = Arc<RwLock<HashSet<DeviceId>>>;
 
 /// Handle to the connection manager. Cheap to clone.
 #[derive(Clone)]
@@ -160,6 +184,8 @@ pub struct Network {
     trust: Arc<Trust>,
     internal: mpsc::UnboundedSender<Internal>,
     senders: Senders,
+    peer_settings: PeerSettings,
+    announced: Announced,
     refresh: Arc<Notify>,
     peers: watch::Receiver<Vec<PeerSnapshot>>,
     status: watch::Receiver<NetStatus>,
@@ -180,6 +206,8 @@ impl Network {
         let (status_tx, status_rx) = watch::channel(initial_status);
         let (peers_tx, peers_rx) = watch::channel(Vec::new());
         let senders = Senders::default();
+        let peer_settings: PeerSettings = Arc::new(RwLock::new(options.peer_settings.into_iter().collect()));
+        let announced = Announced::default();
         let refresh = Arc::new(Notify::new());
         let me = options.device.id;
         let trust = Arc::new(Trust::new(me, options.device_key, options.chain));
@@ -210,17 +238,22 @@ impl Network {
             told_removed: HashSet::new(),
             list_checked: HashMap::new(),
             senders: Arc::clone(&senders),
+            peer_settings: Arc::clone(&peer_settings),
+            announced: Arc::clone(&announced),
+            own_settings: None,
             status_tx,
             peers_tx,
             chain_tx,
             refresh: Arc::clone(&refresh),
             discovery_task,
         };
-        tokio::spawn(actor.run(internal_rx));
+        tokio::spawn(actor.run(internal_rx, options.device_settings));
         let network = Self {
             trust,
             internal: internal_tx,
             senders,
+            peer_settings,
+            announced,
             refresh,
             peers: peers_rx,
             status: status_rx,
@@ -284,6 +317,62 @@ impl Network {
         done_rx.await.ok()
     }
 
+    /// Sends a signed change of `target`'s mode and expiry (#31). `version`
+    /// must be newer than the target's last announced one. Returns `Ok(true)`
+    /// if it was queued on a connection, `Ok(false)` if the target isn't
+    /// connected (the caller keeps it and sends it again on reconnect).
+    pub fn send_config_update(
+        &self,
+        target: DeviceId,
+        mode: SyncMode,
+        ttl_secs: Option<u64>,
+        version: SettingsVersion,
+    ) -> Result<bool, String> {
+        let update = self.trust.sign_config(target, mode, ttl_secs, version).ok_or("not in a sync chain")?;
+        self.deliver_config_update(&update)
+    }
+
+    /// Sends an already signed update again, e.g. one queued while its target was offline.
+    pub fn deliver_config_update(&self, update: &ConfigUpdate) -> Result<bool, String> {
+        if !self.trust.am_member() {
+            return Err("this device isn't an approved member of the chain".into());
+        }
+        if !self.trust.trusts(update.target) {
+            return Err("that device isn't a member of the chain".into());
+        }
+        let Some(envelope) = self.trust.seal(&Inner::ConfigUpdate(update.clone())) else {
+            return Err("not in a sync chain".into());
+        };
+        let senders = self.senders.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(tx) = senders.get(&update.target) else { return Ok(false) };
+        match tx.try_send(envelope) {
+            Ok(()) => {
+                tracing::info!(peer = %update.target, counter = update.version.counter, "sent a settings change");
+                Ok(true)
+            }
+            Err(err) => {
+                tracing::warn!(peer = %update.target, error = %err, "couldn't queue a settings change");
+                Ok(false)
+            }
+        }
+    }
+
+    /// The settings `device` last announced.
+    pub fn peer_settings(&self, device: DeviceId) -> Option<DeviceSettings> {
+        self.peer_settings.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&device).copied()
+    }
+
+    /// Signs `update`'s fields as this device would; for tests and the offline queue.
+    pub fn sign_config_update(
+        &self,
+        target: DeviceId,
+        mode: SyncMode,
+        ttl_secs: Option<u64>,
+        version: SettingsVersion,
+    ) -> Option<ConfigUpdate> {
+        self.trust.sign_config(target, mode, ttl_secs, version)
+    }
+
     /// Closes every connection and stops listening.
     pub async fn shutdown(&self) {
         let (done_tx, done_rx) = oneshot::channel();
@@ -305,9 +394,20 @@ impl Outbound for Network {
         }
         let Some(envelope) = self.trust.seal(&Inner::Clip(clip.clone())) else { return 0 };
         let senders = self.senders.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let peer_settings = self.peer_settings.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let announced = self.announced.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let now = UnixMillis::now();
         senders
             .iter()
             .filter(|(device, _)| self.trust.trusts(**device))
+            // The sender side of mode enforcement (#32): peers that announced on this
+            // connection that they don't receive aren't sent anything. A stored value from
+            // an earlier connection may be stale, so it isn't trusted; receivers drop items
+            // themselves too.
+            .filter(|(device, _)| {
+                !announced.contains(device)
+                    || peer_settings.get(device).is_none_or(|settings| settings.effective_mode(now).receives())
+            })
             .filter(|(device, tx)| match tx.try_send(envelope.clone()) {
                 Ok(()) => true,
                 Err(err) => {
@@ -363,6 +463,12 @@ enum Internal {
         from: DeviceId,
         list: MemberList,
     },
+    PeerSettings {
+        from: DeviceId,
+        /// The connection it arrived on; only the current one counts.
+        conn_id: u64,
+        settings: DeviceSettings,
+    },
     DialFailed {
         node_id: String,
         error: String,
@@ -404,6 +510,7 @@ struct ActivePeer {
     initiator: DeviceId,
     hello: Hello,
     identity: NodeIdentity,
+    addr: SocketAddr,
     dialed: Option<String>,
     /// Inbound connections wait for the peer's `auth`; until then nothing is sent to them.
     authenticated: bool,
@@ -445,6 +552,10 @@ struct Actor {
     /// When a member list from a non-member was last checked, by verified Tailscale node.
     list_checked: HashMap<String, VecDeque<Instant>>,
     senders: Senders,
+    peer_settings: PeerSettings,
+    announced: Announced,
+    /// This device's own settings, as last announced.
+    own_settings: Option<DeviceSettings>,
     status_tx: watch::Sender<NetStatus>,
     peers_tx: watch::Sender<Vec<PeerSnapshot>>,
     chain_tx: watch::Sender<ChainStatus>,
@@ -453,9 +564,14 @@ struct Actor {
 }
 
 impl Actor {
-    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Internal>) {
+    async fn run(
+        mut self,
+        mut rx: mpsc::UnboundedReceiver<Internal>,
+        mut device_settings: watch::Receiver<DeviceSettings>,
+    ) {
         let mut dial_tick = tokio::time::interval(Duration::from_millis(250));
         dial_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        self.own_settings = Some(*device_settings.borrow_and_update());
         loop {
             tokio::select! {
                 message = rx.recv() => match message {
@@ -463,6 +579,9 @@ impl Actor {
                     Some(Internal::Handshaken(handshaken)) => self.on_handshaken(*handshaken),
                     Some(Internal::Authenticated { device_id, conn_id }) => self.on_authenticated(device_id, conn_id),
                     Some(Internal::Members { from, list }) => self.on_members(from, &list),
+                    Some(Internal::PeerSettings { from, conn_id, settings }) => {
+                        self.on_peer_settings(from, conn_id, settings);
+                    }
                     Some(Internal::DialFailed { node_id, error }) => self.on_dial_failed(&node_id, &error),
                     Some(Internal::Latency { device_id, conn_id, rtt }) => self.on_latency(device_id, conn_id, rtt),
                     Some(Internal::Closed { device_id, conn_id, reason }) => self.on_closed(device_id, conn_id, reason),
@@ -475,8 +594,62 @@ impl Actor {
                     None => return,
                 },
                 _ = dial_tick.tick() => self.dial_due(),
+                Ok(()) = device_settings.changed() => {
+                    self.own_settings = Some(*device_settings.borrow_and_update());
+                    let members = self.connected_members();
+                    self.send_settings_to(&members);
+                }
             }
         }
+    }
+
+    fn connected_members(&self) -> Vec<DeviceId> {
+        self.conns
+            .iter()
+            .filter(|(id, peer)| peer.authenticated && self.ctx.trust.trusts(**id))
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// Tells `targets` this device's mode and expiry (#31).
+    fn send_settings_to(&self, targets: &[DeviceId]) {
+        let Some(settings) = self.own_settings else { return };
+        if targets.is_empty() || !self.ctx.trust.am_member() {
+            return;
+        }
+        let Some(envelope) = self.ctx.trust.seal(&Inner::Settings(settings)) else { return };
+        let senders = self.senders.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for device in targets {
+            if let Some(tx) = senders.get(device)
+                && let Err(err) = tx.try_send(envelope.clone())
+            {
+                tracing::warn!(peer = %device, error = %err, "couldn't queue this device's settings");
+            }
+        }
+    }
+
+    /// A member's own settings. Older versions (reordered or replayed) are ignored.
+    fn on_peer_settings(&mut self, from: DeviceId, conn_id: u64, settings: DeviceSettings) {
+        if !self.ctx.trust.trusts(from) {
+            return;
+        }
+        // From a connection that was replaced or closed meanwhile: it says nothing about the current one.
+        if self.conns.get(&from).is_none_or(|peer| peer.conn_id != conn_id) {
+            return;
+        }
+        self.announced.write().unwrap_or_else(std::sync::PoisonError::into_inner).insert(from);
+        {
+            // A device's settings only change with a newer version; anything else is a repeat
+            // (or a reordered or replayed message).
+            let mut all = self.peer_settings.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if all.get(&from).is_some_and(|known| known.version >= settings.version) {
+                return;
+            }
+            all.insert(from, settings);
+        }
+        tracing::debug!(peer = %from, mode = ?settings.mode, counter = settings.version.counter, "peer settings");
+        let _ = self.ctx.events.send(NetEvent::PeerSettings { device_id: from, settings });
+        self.publish_peers();
     }
 
     async fn on_snapshot(&mut self, snapshot: DiscoverySnapshot) {
@@ -661,6 +834,7 @@ impl Actor {
                 initiator,
                 hello,
                 identity,
+                addr,
                 dialed,
                 authenticated: false,
                 tx: Some(tx),
@@ -717,6 +891,9 @@ impl Actor {
         if self.ctx.trust.am_member() {
             let targets = self.list_targets(&[device_id]);
             self.send_members_to(&targets);
+            if self.ctx.trust.trusts(device_id) {
+                self.send_settings_to(&[device_id]);
+            }
         }
         self.publish_peers();
         self.publish_chain();
@@ -831,6 +1008,9 @@ impl Actor {
                 self.conns.iter().filter(|(_, peer)| peer.authenticated).map(|(id, _)| *id).collect();
             let targets = self.list_targets(&connected);
             self.send_members_to(&targets);
+            // A newly approved member hasn't heard this device's settings yet.
+            let members = self.connected_members();
+            self.send_settings_to(&members);
         }
         self.publish_peers();
         self.publish_chain();
@@ -981,6 +1161,7 @@ impl Actor {
                 let _ = close.send((code, reason));
             }
             self.senders.write().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&device_id);
+            self.announced.write().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&device_id);
         }
     }
 
@@ -1001,6 +1182,7 @@ impl Actor {
         }
         let Some(peer) = self.conns.remove(&device_id) else { return };
         self.senders.write().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&device_id);
+        self.announced.write().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&device_id);
         // Redial soon, not instantly: the peer may be restarting.
         let next_at = Some(Instant::now() + jitter(self.ctx.timing.retry_base));
         for node_id in [Some(&peer.identity.node_id), peer.dialed.as_ref()].into_iter().flatten() {
@@ -1020,6 +1202,7 @@ impl Actor {
 
     fn publish_peers(&self) {
         let trust = &self.ctx.trust;
+        let settings = self.peer_settings.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut peers: Vec<PeerSnapshot> = self
             .known
             .iter()
@@ -1034,6 +1217,8 @@ impl Actor {
                     latency: active.and_then(|peer| peer.latency),
                     last_seen: known.last_seen,
                     trust: trust.peer_trust(*device_id),
+                    settings: settings.get(device_id).copied(),
+                    address: active.map(|peer| peer.addr.ip()),
                 }
             })
             .collect();
@@ -1051,6 +1236,8 @@ impl Actor {
                     latency: peer.latency,
                     last_seen: peer.last_seen,
                     trust: trust.peer_trust(*device_id),
+                    settings: None,
+                    address: Some(peer.addr.ip()),
                 }),
         );
         peers.sort_by(|a, b| b.connected.cmp(&a.connected).then_with(|| a.name.cmp(&b.name)));
@@ -1366,7 +1553,7 @@ async fn drive(
                     }
                     Ok(Some(received)) => match &received.message {
                         Message::Encrypted(_) => {
-                            if let Some(ack) = on_encrypted(ctx, peer, &received) {
+                            if let Some(ack) = on_encrypted(ctx, peer, link.conn_id, &received) {
                                 send!(envelope(Message::Ack(ack)));
                             }
                         }
@@ -1426,7 +1613,7 @@ async fn drive(
 }
 
 /// Decrypts and routes one `encrypted` message. Returns the ack to send, if any.
-fn on_encrypted(ctx: &Ctx, peer: DeviceId, received: &Envelope) -> Option<Ack> {
+fn on_encrypted(ctx: &Ctx, peer: DeviceId, conn_id: u64, received: &Envelope) -> Option<Ack> {
     let inner = match ctx.trust.open(received) {
         Ok(inner) => inner,
         Err(err) => {
@@ -1449,6 +1636,28 @@ fn on_encrypted(ctx: &Ctx, peer: DeviceId, received: &Envelope) -> Option<Ack> {
         }
         Inner::Members(list) => {
             let _ = ctx.internal.send(Internal::Members { from: peer, list });
+        }
+        Inner::Settings(settings) => {
+            if !ctx.trust.trusts(peer) {
+                tracing::debug!(%peer, "ignoring settings from a device that isn't an approved member");
+                return None;
+            }
+            let _ = ctx.internal.send(Internal::PeerSettings { from: peer, conn_id, settings });
+        }
+        Inner::ConfigUpdate(update) => {
+            if !ctx.trust.trusts(peer) {
+                tracing::warn!(%peer, "ignoring a settings change from a device that isn't an approved member");
+                return None;
+            }
+            if update.target != ctx.me {
+                tracing::warn!(%peer, target = %update.target, "ignoring a settings change for another device");
+                return None;
+            }
+            if !ctx.trust.verify_config(&update) {
+                tracing::warn!(%peer, "ignoring a settings change with a bad signature");
+                return None;
+            }
+            let _ = ctx.events.send(NetEvent::ConfigUpdate { from: peer, update });
         }
     }
     Some(Ack { msg_id: received.msg_id })

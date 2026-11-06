@@ -140,11 +140,15 @@ associated data, over an inner message:
 | `hello`     | device id, name, OS, versions, capabilities, device key, nonce, chain proof | by the dialer, first                       |
 | `hello_ack` | same as `hello`, plus the listener's signature over both hellos             | by the listener, once accepted             |
 | `auth`      | the dialer's signature over both hellos                                     | by the dialer, completing the handshake    |
-| `encrypted` | sealed inner `clip` (one copied item) or `members` (the signed member list) | items on every local copy; lists on change |
+| `encrypted` | sealed inner `clip`, `members`, `settings` or `config_update` (see below)   | items on every local copy; lists on change |
 | `ack`       | `msg_id` of the `encrypted` message                                         | on accepting one                           |
 | `ping`      | empty                                                                       | every 10 s                                 |
 | `pong`      | `ping_id`                                                                   | in reply; gives the latency                |
-| reserved    | `config_update` (#31), which will travel inside `encrypted`                 | ignored like any other unknown type        |
+
+Inside `encrypted`: `clip` (one copied item), `members` (the signed member list),
+`settings` (the sender's own mode, expiry and pause, on connect and on change) and
+`config_update` (a member changing the receiver's mode and expiry, signed with its device
+key; [ADR 0012](adr/0012-remote-device-settings.md)).
 
 - **Versioning:** `v` is the major version. A peer with another one is refused with
   close code 4001; unknown message types within v2 are ignored. A plaintext `clip` (v1)
@@ -175,13 +179,22 @@ associated data, over an inner message:
 
 ```
 src/
-  windows/   one component tree per Tauri window (settings, onboarding, panel, tray popover)
-  ipc/       typed wrappers around Tauri commands and events; mirrors Rust types
-  (later)    components/, platform/ (per-OS theme tokens: macOS, Fluent, Breeze), state/
+  App.tsx      picks the window's tree by Tauri window label
+  windows/     settings/ (main), setup/, tray/ (popover / flyout), panel/ (macOS ⇧⌘V)
+  components/  primitives (toggle, segmented control, InfoBar, dialog), chain + Add Device
+  ipc/         typed wrappers around the commands; bindings/ is generated from Rust (ts-rs)
+  state/       useResource: load from Rust, reload on Rust events
+  lib/         formatting, sanitised rich-text previews, shortcut recording
+  platform/    per-OS theme tokens (macOS, Fluent, Breeze), light and dark
 ```
 
-The UI follows each OS's native look (see the mocks). Rust types exposed over IPC are
-mirrored in `src/ipc/`; generating them from Rust is planned in #28.
+The UI follows each OS's native look (see the mocks). The IPC types in
+`src-tauri/src/views.rs` derive `ts_rs::TS`; `cargo test -p pasta-app` writes
+`src/ipc/bindings/`, and CI fails if they're stale. The macOS panel is a non-activating
+`NSPanel`, so pasting goes to the app the user was in
+([ADR 0013](adr/0013-windows-ipc-types-and-the-mac-panel.md)). The Mac history is a table
+in the encrypted store, searched by decrypting
+([ADR 0011](adr/0011-history-search-without-a-plaintext-index.md)).
 
 ## Where things are tracked
 

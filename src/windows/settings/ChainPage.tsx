@@ -11,19 +11,21 @@ export function ChainPage() {
   const chain = useResource(getChain, [EVENTS.chain]);
   const action = useAction();
   const [leaving, setLeaving] = useState(false);
+  // Kept on screen after creating, until the new words have been seen.
+  const [creating, setCreating] = useState(false);
 
   if (chain.error && !chain.data) return <InfoBar tone="warning">{chain.error}</InfoBar>;
   if (!chain.data) return <p className="muted">Loading…</p>;
   const view = chain.data;
 
-  if (view.state === "none") {
+  if (view.state === "none" || creating) {
     return (
       <Section
         title="Sync chain"
         description="Your devices sync only with others in the same chain."
       >
         <div className="pad">
-          <ChainChoice />
+          <ChainChoice onCreateStart={() => setCreating(true)} onDone={() => setCreating(false)} />
         </div>
       </Section>
     );

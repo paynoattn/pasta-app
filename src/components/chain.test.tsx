@@ -109,6 +109,20 @@ describe("ChainChoice", () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves the Continue under new words to the parent when asked", async () => {
+    const user = userEvent.setup();
+    createChain.mockResolvedValue(WORDS);
+    const onCreateStart = vi.fn();
+    render(<ChainChoice onCreateStart={onCreateStart} continueButton={false} />);
+
+    await user.click(screen.getByRole("button", { name: /Create a new chain/i }));
+    await user.click(screen.getByRole("button", { name: "Create the chain" }));
+
+    await screen.findByRole("list", { name: "The 24 words" });
+    expect(onCreateStart).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  });
+
   it("joining needs the words and sends exactly what was typed", async () => {
     const user = userEvent.setup();
     joinChain.mockResolvedValue(undefined);

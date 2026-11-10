@@ -181,11 +181,26 @@ function TailscaleStep({ view }: { view: SetupView }) {
 }
 
 function ChainStep({ view, onDone }: { view: SetupView; onDone: () => void }) {
+  // Kept on screen after creating, until the new words have been seen.
+  const [creating, setCreating] = useState(false);
+  if (view.chain === "none" || creating) {
+    return (
+      <>
+        <h1>Create or join a chain</h1>
+        <p>Your devices sync only within one sync chain, protected by 24 words.</p>
+        {/* The setup flow's own Continue moves on, so ChainChoice doesn't add a second. */}
+        <ChainChoice
+          onCreateStart={() => setCreating(true)}
+          onDone={onDone}
+          continueButton={false}
+        />
+      </>
+    );
+  }
   return (
     <>
       <h1>Create or join a chain</h1>
       <p>Your devices sync only within one sync chain, protected by 24 words.</p>
-      {view.chain === "none" && <ChainChoice onDone={onDone} />}
       {view.chain === "waiting" && (
         <InfoBar tone="info" title="Waiting for approval.">
           On one of your other devices, open Pasta › Devices and approve this one. You can carry on

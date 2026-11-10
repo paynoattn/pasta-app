@@ -93,6 +93,7 @@ throwaway text.
 
 - [ ] Open at login on/off survives a log-out (LaunchAgent / Run key).
 - [ ] A build without `PASTA_UPDATER_PUBKEY` says updates aren't set up.
-- [ ] Record a new panel shortcut; ⌘Space is refused; ⇧⌘V shows the Paste and Match
+- [ ] Click the shortcut (Settings › Shortcuts, and setup on macOS) and press a new one;
+      Esc cancels; ⌘Space is refused; ⇧⌘V shows the Paste and Match
       Style note; Reset goes back to ⇧⌘V. The old shortcut stops working.
 - [ ] Windows/KDE: the Shortcuts page shows the placeholder.

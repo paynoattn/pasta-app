@@ -8,11 +8,15 @@ import {
   setOpenAtLogin,
   setUpdatePrefs,
   setupStatus,
+  shortcutsStatus,
   startupStatus,
   type SetupView,
+  type ShortcutsView,
 } from "../../ipc/commands";
 import { ChainChoice } from "../../components/chain";
 import { Button, ErrorText, InfoBar, Row, Section, Toggle } from "../../components/controls";
+import { ShortcutChip } from "../../components/ShortcutChip";
+import { useShortcutRecorder } from "../../state/useShortcutRecorder";
 import { displayAccelerator } from "../../lib/accelerator";
 import { platform } from "../../platform/platform";
 import { useAction, useNow, useResource } from "../../state/useResource";
@@ -256,14 +260,7 @@ function PermissionsStep({ view }: { view: SetupView }) {
               </>
             )}
           </Row>
-          <Row
-            label="Clipboard panel shortcut"
-            hint="Many apps use ⇧⌘V for Paste and Match Style; Pasta takes it over while it runs. Change it in Settings › Shortcuts."
-          >
-            <span className="shortcut">
-              {displayAccelerator(view.panelShortcut ?? "Shift+Command+V")}
-            </span>
-          </Row>
+          <PanelShortcutRow />
           <Row
             label="Bridge iCloud Universal Clipboard"
             hint="Copies from your iPhone or iPad go to your other devices too, and theirs reach your iPhone."
@@ -350,6 +347,36 @@ function PermissionsStep({ view }: { view: SetupView }) {
         </Row>
       </Section>
       <ErrorText error={action.error} />
+    </>
+  );
+}
+
+/** macOS: the panel shortcut, changed by clicking it (#44, #48). */
+function PanelShortcutRow() {
+  const status = useResource(shortcutsStatus, []);
+  const [changed, setChanged] = useState<ShortcutsView | null>(null);
+  // A state setter, so the recorder's callback stays the same across the 2 s polls.
+  const recorder = useShortcutRecorder(setChanged);
+  const view = changed ?? status.data;
+  return (
+    <>
+      <Row
+        label="Clipboard panel shortcut"
+        hint="Many apps use ⇧⌘V for Paste and Match Style; Pasta takes it over while it runs. Click the shortcut to change it."
+      >
+        {view ? (
+          <ShortcutChip view={view} recorder={recorder} />
+        ) : (
+          <span className="muted">{status.error ?? "…"}</span>
+        )}
+      </Row>
+      {view && (view.error || view.warning || recorder.error) && (
+        <div className="pad">
+          {view.error && <InfoBar tone="error">{view.error}</InfoBar>}
+          {view.warning && <InfoBar tone="warning">{view.warning}</InfoBar>}
+          <ErrorText error={recorder.error} />
+        </div>
+      )}
     </>
   );
 }

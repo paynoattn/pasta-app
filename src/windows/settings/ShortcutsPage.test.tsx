@@ -88,7 +88,11 @@ describe("ShortcutsPage supported (macOS)", () => {
     render(<ShortcutsPage />);
 
     expect(await screen.findByText("⇧⌘V")).toBeInstanceOf(HTMLElement);
-    expect(screen.getByText("Record")).toBeInstanceOf(HTMLElement);
+    // The key cap itself is the control; there's no separate Record button.
+    expect(
+      screen.getByRole("button", { name: "Change the panel shortcut, now ⇧⌘V" }),
+    ).toBeInstanceOf(HTMLElement);
+    expect(screen.queryByRole("button", { name: "Record" })).toBeNull();
     // At the default, there is nothing to reset.
     expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
   });
@@ -106,7 +110,7 @@ describe("ShortcutsPage supported (macOS)", () => {
     render(<ShortcutsPage />);
     await screen.findByText("⇧⌘V");
 
-    await user.click(screen.getByRole("button", { name: "Record" }));
+    await user.click(screen.getByRole("button", { name: /Change the panel shortcut/ }));
     expect(await screen.findByText("Press a shortcut…")).toBeInstanceOf(HTMLElement);
     await waitFor(() => expect(suspendShortcut).toHaveBeenNthCalledWith(1, true));
 

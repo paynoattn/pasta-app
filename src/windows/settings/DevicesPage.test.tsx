@@ -107,7 +107,7 @@ beforeEach(async () => {
   listPeers.mockResolvedValue([peerView]);
   setupStatus.mockResolvedValue({
     os: "linux",
-    tailscale: { state: "running", detail: null, address: "100.101.102.104" },
+    tailscale: { state: "running", detail: null, address: "100.101.102.104", cliOnly: false },
     chain: "member",
     accessibility: null,
     clipboardHistory: null,

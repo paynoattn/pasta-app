@@ -127,6 +127,8 @@ function Welcome() {
 
 function TailscaleStep({ view }: { view: SetupView }) {
   const tailscale = view.tailscale;
+  // macOS without Tailscale.app (Homebrew's `tailscale` formula): Terminal, not the app.
+  const cliOnly = platform === "macos" && tailscale.cliOnly;
   return (
     <>
       <h1>Connect Tailscale</h1>
@@ -139,20 +141,27 @@ function TailscaleStep({ view }: { view: SetupView }) {
         </InfoBar>
       )}
       {tailscale.state === "starting" && <InfoBar tone="info">Checking Tailscale…</InfoBar>}
-      {tailscale.state === "missing" && (
-        <InfoBar
-          tone="error"
-          title="Tailscale isn't installed or isn't running."
-          action={
-            <Button onClick={() => void openSettingsLink("tailscale_download")}>
-              Get Tailscale
-            </Button>
-          }
-        >
-          Install it, sign in, then come back here.
-          {tailscale.detail && <span className="muted"> ({tailscale.detail})</span>}
-        </InfoBar>
-      )}
+      {tailscale.state === "missing" &&
+        (cliOnly ? (
+          <InfoBar tone="error" title="Tailscale's service isn't running.">
+            In Terminal, start it with <code>sudo brew services start tailscale</code> (if you
+            installed it with Homebrew), then run <code>tailscale up</code> and sign in.
+            {tailscale.detail && <span className="muted"> ({tailscale.detail})</span>}
+          </InfoBar>
+        ) : (
+          <InfoBar
+            tone="error"
+            title="Tailscale isn't installed or isn't running."
+            action={
+              <Button onClick={() => void openSettingsLink("tailscale_download")}>
+                Get Tailscale
+              </Button>
+            }
+          >
+            Install it, sign in, then come back here.
+            {tailscale.detail && <span className="muted"> ({tailscale.detail})</span>}
+          </InfoBar>
+        ))}
       {tailscale.state === "stopped" && (
         <InfoBar
           tone="warning"
@@ -162,16 +171,22 @@ function TailscaleStep({ view }: { view: SetupView }) {
               : "Tailscale is disconnected."
           }
           action={
-            platform === "macos" ? (
+            platform === "macos" && !cliOnly ? (
               <Button onClick={() => void openSettingsLink("tailscale_app")}>Open Tailscale</Button>
             ) : undefined
           }
         >
-          {platform === "windows"
-            ? "Click the Tailscale icon in the taskbar and connect."
-            : platform === "macos"
-              ? "Open Tailscale from the menu bar and connect."
-              : "Run `tailscale up`, and `sudo tailscale set --operator=$USER` once so Pasta can ask it about your devices."}
+          {platform === "windows" ? (
+            "Click the Tailscale icon in the taskbar and connect."
+          ) : cliOnly ? (
+            <>
+              In Terminal, run <code>tailscale up</code> and sign in.
+            </>
+          ) : platform === "macos" ? (
+            "Open Tailscale from the menu bar and connect."
+          ) : (
+            "Run `tailscale up`, and `sudo tailscale set --operator=$USER` once so Pasta can ask it about your devices."
+          )}
           {tailscale.detail && <span className="muted"> ({tailscale.detail})</span>}
         </InfoBar>
       )}

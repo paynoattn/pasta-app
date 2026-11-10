@@ -7,7 +7,7 @@ set -u
 
 bin="$1"
 if [ -n "${PASTA_CODESIGN_IDENTITY:-}" ] && [ "$(basename "$bin")" = "pasta-app" ]; then
-  if ! codesign --force --sign "$PASTA_CODESIGN_IDENTITY" --identifier com.cpawlukiewicz.pasta-app "$bin"; then
+  if ! codesign --force --sign "$PASTA_CODESIGN_IDENTITY" --identifier com.kingdomworks.pasta "$bin"; then
     echo "macos-dev-runner: couldn't sign with \"$PASTA_CODESIGN_IDENTITY\"; running unsigned" >&2
   fi
 fi

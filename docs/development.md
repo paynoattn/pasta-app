@@ -93,14 +93,14 @@ has produced `dist/`:
 cargo run -p pasta-app --features tauri/custom-protocol
 ```
 
-| What                       | Windows                                            | macOS                                                        |
-| -------------------------- | -------------------------------------------------- | ------------------------------------------------------------ |
-| Encrypted store `pasta.db` | `%APPDATA%\com.cpawlukiewicz.pasta-app\`           | `~/Library/Application Support/com.cpawlukiewicz.pasta-app/` |
-| Logs (daily, 7 kept)       | `%LOCALAPPDATA%\com.cpawlukiewicz.pasta-app\logs\` | `~/Library/Logs/com.cpawlukiewicz.pasta-app/`                |
-| Keys (one entry)           | Credential Manager › Windows Credentials           | Keychain Access › login                                      |
+| What                       | Windows                                       | macOS                                                   |
+| -------------------------- | --------------------------------------------- | ------------------------------------------------------- |
+| Encrypted store `pasta.db` | `%APPDATA%\com.kingdomworks.pasta\`           | `~/Library/Application Support/com.kingdomworks.pasta/` |
+| Logs (daily, 7 kept)       | `%LOCALAPPDATA%\com.kingdomworks.pasta\logs\` | `~/Library/Logs/com.kingdomworks.pasta/`                |
+| Keys (one entry)           | Credential Manager › Windows Credentials      | Keychain Access › login                                 |
 
 - Since M2, settings, known peers and the chain's member list live in `pasta.db`, every
-  value encrypted with a key from the OS keychain (service `com.cpawlukiewicz.pasta-app`,
+  value encrypted with a key from the OS keychain (service `com.kingdomworks.pasta`,
   account `device-secrets`; ADR 0008). The first M2 start imports M1's `config.json` and
   deletes it. Settings are changed in the Settings window (#29);
   `PASTA_LOG=pasta_net=debug,pasta_core=debug` overrides the log level. Logs carry item

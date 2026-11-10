@@ -57,7 +57,7 @@ throwaway text.
       scripts shows text only (no network requests in the console).
 - [ ] RTF-only items (TextEdit) show formatted.
 - [ ] Without Accessibility: ↩ copies and the hint says to allow Accessibility.
-- [ ] `strings ~/Library/Application\ Support/com.cpawlukiewicz.pasta-app/pasta.db`
+- [ ] `strings ~/Library/Application\ Support/com.kingdomworks.pasta/pasta.db`
       shows no copied text.
 - [ ] Retention: lower "Keep up to" to 100: older items go.
 

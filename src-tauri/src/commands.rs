@@ -257,8 +257,11 @@ pub enum WindowName {
     Panel,
 }
 
+/// Async on purpose: a sync command runs on the main thread, and building a
+/// window there (the setup window, the first time) deadlocks WebView2 on
+/// Windows, which hangs every window's IPC (tauri-apps/wry#583).
 #[tauri::command]
-pub fn open_window(app: AppHandle, window: WindowName, section: Option<String>) {
+pub async fn open_window(app: AppHandle, window: WindowName, section: Option<String>) {
     match window {
         WindowName::Settings => crate::ui::open_settings(&app, section.as_deref()),
         WindowName::Setup => crate::ui::open_setup(&app),

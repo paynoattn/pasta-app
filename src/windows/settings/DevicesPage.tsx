@@ -253,7 +253,11 @@ function DeviceRow({
         <Select
           label={`Expiry on ${shownName}`}
           value={ttlValue(current?.ttlSecs ?? null)}
-          options={ttlOptions(ttlChoices)}
+          // Shown bare ("Never", "1 hour") next to the mode buttons, it didn't read as expiry.
+          options={ttlOptions(ttlChoices).map((option) => ({
+            ...option,
+            label: `Expire: ${option.label.toLowerCase()}`,
+          }))}
           disabled={action.busy}
           onChange={(value) => change(current?.mode ?? "both", parseTtl(value))}
         />

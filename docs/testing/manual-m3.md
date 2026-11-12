@@ -20,8 +20,9 @@ throwaway text.
 - [ ] Set the PC to **Receive** from the Mac: the PC's Settings shows Receive within a
       few seconds; copies on the PC no longer reach the Mac; the Mac's row for the PC
       says Receive.
-- [ ] Quit Pasta on the PC, change its expiry on the Mac: the row says "changes reach it
-      when it reconnects". Start the PC: the change arrives, and the note goes away.
+- [ ] Quit Pasta on the PC, then on the Mac change the PC's expiry in Settings › Devices (the
+      "Expire: …" menu on the PC's row): the row says "changes reach it when it reconnects".
+      Start the PC: the change arrives, and the note goes away.
 - [ ] Change the same device from both machines at nearly the same time: both end up
       showing the same value.
 - [ ] Pause for 1 hour (tray or Settings): nothing goes out or comes in; the tray says

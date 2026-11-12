@@ -270,4 +270,38 @@ describe("DevicesPage", () => {
     await waitFor(() => expect(setDeviceName).toHaveBeenCalledExactlyOnceWith("Studio Mac"));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
+
+  it("expiry options read 'Expire: …' and choosing one saves this device's mode and ttl", async () => {
+    setDeviceSettings.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    await rendered();
+
+    const select = screen.getByRole("combobox", {
+      name: "Expiry on macbook-pro",
+    }) as HTMLSelectElement;
+    const options = within(screen.getByRole("combobox", { name: "Expiry on macbook-pro" }))
+      .getAllByRole("option")
+      .map((option) => (option as HTMLOptionElement).textContent);
+    // ttlChoices [3600, null] → "1 hour", "Never", prefixed and lowercased.
+    expect(options).toEqual(["Expire: 1 hour", "Expire: never"]);
+
+    // This device's mode is "both"; changing only its expiry keeps that mode.
+    await user.selectOptions(select, "3600");
+
+    await waitFor(() =>
+      expect(setDeviceSettings).toHaveBeenCalledExactlyOnceWith(THIS_DEVICE.deviceId, "both", 3600),
+    );
+  });
+
+  it("says a peer with pending settings gets them when it reconnects", async () => {
+    listPeers.mockResolvedValue([
+      {
+        ...peerView,
+        pendingSettings: { mode: "send", effectiveMode: "send", ttlSecs: 3600, pausedUntil: null },
+      },
+    ]);
+    await rendered();
+
+    expect(screen.getByText(/changes reach it when it reconnects/)).toBeInstanceOf(HTMLElement);
+  });
 });

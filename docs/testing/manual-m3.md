@@ -92,6 +92,8 @@ throwaway text.
 ## Startup, updates, shortcuts (#47, #48)
 
 - [ ] Open at login on/off survives a log-out (LaunchAgent / Run key).
+- [ ] Open at login turned on from a dev build is refused; an installed build started once
+      re-points an existing login entry at itself (no "localhost refused", no console at login).
 - [ ] A build without `PASTA_UPDATER_PUBKEY` says updates aren't set up.
 - [ ] Click the shortcut (Settings › Shortcuts, and setup on macOS) and press a new one;
       Esc cancels; ⌘Space is refused; ⇧⌘V shows the Paste and Match

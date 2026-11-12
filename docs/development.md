@@ -127,6 +127,9 @@ cargo run -p pasta-app --features tauri/custom-protocol
   `PASTA_DEBUGGABLE=1` skips that so a debugger can attach.
 - On macOS, launch the app from Finder or with `open` rather than from an SSH session, so
   it runs in your login session with the menu bar and pasteboard.
+- A dev build can't turn on Open at login: the login entry would start `target/debug`,
+  which needs the dev server. Test it with an installed build; on Windows an installed
+  build also re-points an existing entry at itself when it starts (#47).
 
 ### macOS: stop the keychain prompt on every rebuild
 

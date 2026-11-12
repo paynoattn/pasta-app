@@ -26,7 +26,8 @@ throwaway text.
 - [ ] Change the same device from both machines at nearly the same time: both end up
       showing the same value.
 - [ ] Pause for 1 hour (tray or Settings): nothing goes out or comes in; the tray says
-      paused; Resume, or wait (set the clock forward), and syncing resumes by itself.
+      paused; Resume, or wait (set the clock forward), and syncing resumes by itself. Nothing
+      is caught up: what was copied during the pause is never sent (v1 is live-only, ADR 0003).
 - [ ] Rename this device: typing keeps focus, the row shows the new name at once, and the
       other device shows it after Pasta restarts here. Remove another (it stops receiving at
       once).

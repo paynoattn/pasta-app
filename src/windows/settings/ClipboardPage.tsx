@@ -96,7 +96,7 @@ function SyncSection({ settings }: { settings: SettingsView }) {
         hint={
           paused && device.pausedUntil
             ? `Paused ${pausedFor(device.pausedUntil, now)}.`
-            : "Stops sending and receiving for an hour."
+            : "Stops sending and receiving for an hour. Nothing is caught up afterwards: copies made meanwhile stay on this device."
         }
       >
         {paused ? (

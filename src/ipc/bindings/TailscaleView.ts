@@ -15,4 +15,9 @@ detail: string | null,
 /**
  * This device's tailnet address.
  */
-address: string | null, };
+address: string | null, 
+/**
+ * macOS: only the `tailscale` CLI is installed (e.g. Homebrew's formula),
+ * no Tailscale.app, so the fix is a Terminal command rather than the app.
+ */
+cliOnly: boolean, };

@@ -8,11 +8,15 @@ import {
   setOpenAtLogin,
   setUpdatePrefs,
   setupStatus,
+  shortcutsStatus,
   startupStatus,
   type SetupView,
+  type ShortcutsView,
 } from "../../ipc/commands";
 import { ChainChoice } from "../../components/chain";
 import { Button, ErrorText, InfoBar, Row, Section, Toggle } from "../../components/controls";
+import { ShortcutChip } from "../../components/ShortcutChip";
+import { useShortcutRecorder } from "../../state/useShortcutRecorder";
 import { displayAccelerator } from "../../lib/accelerator";
 import { platform } from "../../platform/platform";
 import { useAction, useNow, useResource } from "../../state/useResource";
@@ -127,6 +131,8 @@ function Welcome() {
 
 function TailscaleStep({ view }: { view: SetupView }) {
   const tailscale = view.tailscale;
+  // macOS without Tailscale.app (Homebrew's `tailscale` formula): Terminal, not the app.
+  const cliOnly = platform === "macos" && tailscale.cliOnly;
   return (
     <>
       <h1>Connect Tailscale</h1>
@@ -139,20 +145,27 @@ function TailscaleStep({ view }: { view: SetupView }) {
         </InfoBar>
       )}
       {tailscale.state === "starting" && <InfoBar tone="info">Checking Tailscale…</InfoBar>}
-      {tailscale.state === "missing" && (
-        <InfoBar
-          tone="error"
-          title="Tailscale isn't installed or isn't running."
-          action={
-            <Button onClick={() => void openSettingsLink("tailscale_download")}>
-              Get Tailscale
-            </Button>
-          }
-        >
-          Install it, sign in, then come back here.
-          {tailscale.detail && <span className="muted"> ({tailscale.detail})</span>}
-        </InfoBar>
-      )}
+      {tailscale.state === "missing" &&
+        (cliOnly ? (
+          <InfoBar tone="error" title="Tailscale's service isn't running.">
+            In Terminal, start it with <code>sudo brew services start tailscale</code> (if you
+            installed it with Homebrew), then run <code>tailscale up</code> and sign in.
+            {tailscale.detail && <span className="muted"> ({tailscale.detail})</span>}
+          </InfoBar>
+        ) : (
+          <InfoBar
+            tone="error"
+            title="Tailscale isn't installed or isn't running."
+            action={
+              <Button onClick={() => void openSettingsLink("tailscale_download")}>
+                Get Tailscale
+              </Button>
+            }
+          >
+            Install it, sign in, then come back here.
+            {tailscale.detail && <span className="muted"> ({tailscale.detail})</span>}
+          </InfoBar>
+        ))}
       {tailscale.state === "stopped" && (
         <InfoBar
           tone="warning"
@@ -162,16 +175,22 @@ function TailscaleStep({ view }: { view: SetupView }) {
               : "Tailscale is disconnected."
           }
           action={
-            platform === "macos" ? (
+            platform === "macos" && !cliOnly ? (
               <Button onClick={() => void openSettingsLink("tailscale_app")}>Open Tailscale</Button>
             ) : undefined
           }
         >
-          {platform === "windows"
-            ? "Click the Tailscale icon in the taskbar and connect."
-            : platform === "macos"
-              ? "Open Tailscale from the menu bar and connect."
-              : "Run `tailscale up`, and `sudo tailscale set --operator=$USER` once so Pasta can ask it about your devices."}
+          {platform === "windows" ? (
+            "Click the Tailscale icon in the taskbar and connect."
+          ) : cliOnly ? (
+            <>
+              In Terminal, run <code>tailscale up</code> and sign in.
+            </>
+          ) : platform === "macos" ? (
+            "Open Tailscale from the menu bar and connect."
+          ) : (
+            "Run `tailscale up`, and `sudo tailscale set --operator=$USER` once so Pasta can ask it about your devices."
+          )}
           {tailscale.detail && <span className="muted"> ({tailscale.detail})</span>}
         </InfoBar>
       )}
@@ -181,11 +200,26 @@ function TailscaleStep({ view }: { view: SetupView }) {
 }
 
 function ChainStep({ view, onDone }: { view: SetupView; onDone: () => void }) {
+  // Kept on screen after creating, until the new words have been seen.
+  const [creating, setCreating] = useState(false);
+  if (view.chain === "none" || creating) {
+    return (
+      <>
+        <h1>Create or join a chain</h1>
+        <p>Your devices sync only within one sync chain, protected by 24 words.</p>
+        {/* The setup flow's own Continue moves on, so ChainChoice doesn't add a second. */}
+        <ChainChoice
+          onCreateStart={() => setCreating(true)}
+          onDone={onDone}
+          continueButton={false}
+        />
+      </>
+    );
+  }
   return (
     <>
       <h1>Create or join a chain</h1>
       <p>Your devices sync only within one sync chain, protected by 24 words.</p>
-      {view.chain === "none" && <ChainChoice onDone={onDone} />}
       {view.chain === "waiting" && (
         <InfoBar tone="info" title="Waiting for approval.">
           On one of your other devices, open Pasta › Devices and approve this one. You can carry on
@@ -226,14 +260,7 @@ function PermissionsStep({ view }: { view: SetupView }) {
               </>
             )}
           </Row>
-          <Row
-            label="Clipboard panel shortcut"
-            hint="Many apps use ⇧⌘V for Paste and Match Style; Pasta takes it over while it runs. Change it in Settings › Shortcuts."
-          >
-            <span className="shortcut">
-              {displayAccelerator(view.panelShortcut ?? "Shift+Command+V")}
-            </span>
-          </Row>
+          <PanelShortcutRow />
           <Row
             label="Bridge iCloud Universal Clipboard"
             hint="Copies from your iPhone or iPad go to your other devices too, and theirs reach your iPhone."
@@ -320,6 +347,36 @@ function PermissionsStep({ view }: { view: SetupView }) {
         </Row>
       </Section>
       <ErrorText error={action.error} />
+    </>
+  );
+}
+
+/** macOS: the panel shortcut, changed by clicking it (#44, #48). */
+function PanelShortcutRow() {
+  const status = useResource(shortcutsStatus, []);
+  const [changed, setChanged] = useState<ShortcutsView | null>(null);
+  // A state setter, so the recorder's callback stays the same across the 2 s polls.
+  const recorder = useShortcutRecorder(setChanged);
+  const view = changed ?? status.data;
+  return (
+    <>
+      <Row
+        label="Clipboard panel shortcut"
+        hint="Many apps use ⇧⌘V for Paste and Match Style; Pasta takes it over while it runs. Click the shortcut to change it."
+      >
+        {view ? (
+          <ShortcutChip view={view} recorder={recorder} />
+        ) : (
+          <span className="muted">{status.error ?? "…"}</span>
+        )}
+      </Row>
+      {view && (view.error || view.warning || recorder.error) && (
+        <div className="pad">
+          {view.error && <InfoBar tone="error">{view.error}</InfoBar>}
+          {view.warning && <InfoBar tone="warning">{view.warning}</InfoBar>}
+          <ErrorText error={recorder.error} />
+        </div>
+      )}
     </>
   );
 }

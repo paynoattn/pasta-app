@@ -114,8 +114,23 @@ export function WordsReveal({ copyHint }: { copyHint?: string }) {
   );
 }
 
-/** Create a chain or join one with its words (#20, #43). */
-export function ChainChoice({ onDone }: { onDone?: () => void }) {
+/**
+ * Create a chain or join one with its words (#20, #43).
+ *
+ * Creating a chain flips the chain state to `member` before the new words are
+ * shown, so a parent that renders this only while there's no chain must keep
+ * it mounted from `onCreateStart` until `onDone`. `continueButton={false}` leaves
+ * the Continue under the new words to the parent, e.g. the setup flow's own.
+ */
+export function ChainChoice({
+  onCreateStart,
+  onDone,
+  continueButton = true,
+}: {
+  onCreateStart?: () => void;
+  onDone?: () => void;
+  continueButton?: boolean;
+}) {
   const [mode, setMode] = useState<"choose" | "create" | "join">("choose");
   const [created, setCreated] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
@@ -135,11 +150,13 @@ export function ChainChoice({ onDone }: { onDone?: () => void }) {
             <p className="muted">
               You can show them again later in Settings › Sync chain &amp; security.
             </p>
-            <div className="button-row">
-              <Button variant="primary" onClick={onDone}>
-                Continue
-              </Button>
-            </div>
+            {continueButton && (
+              <div className="button-row">
+                <Button variant="primary" onClick={onDone}>
+                  Continue
+                </Button>
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -152,7 +169,12 @@ export function ChainChoice({ onDone }: { onDone?: () => void }) {
               <Button
                 variant="primary"
                 disabled={action.busy}
-                onClick={() => void action.run(async () => setCreated(await createChain()))}
+                onClick={() =>
+                  void action.run(async () => {
+                    onCreateStart?.();
+                    setCreated(await createChain());
+                  })
+                }
               >
                 Create the chain
               </Button>

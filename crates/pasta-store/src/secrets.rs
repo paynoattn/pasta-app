@@ -18,7 +18,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 /// Keychain service and account names. One entry per OS user.
-pub const SERVICE: &str = "com.cpawlukiewicz.pasta-app";
+pub const SERVICE: &str = "com.kingdomworks.pasta";
 pub const ACCOUNT: &str = "device-secrets";
 
 const MAGIC: &[u8; 8] = b"PASTA\x00S\x01";
@@ -291,7 +291,7 @@ mod tests {
     #[test]
     #[ignore = "uses the real OS credential store"]
     fn keyring_round_trip() {
-        let store = KeyringStore::new("com.cpawlukiewicz.pasta-app.test", &format!("probe-{}", Uuid::new_v4()));
+        let store = KeyringStore::new("com.kingdomworks.pasta.test", &format!("probe-{}", Uuid::new_v4()));
         let secrets = DeviceSecrets::generate(DeviceId::random());
         store.save(&secrets.encode()).unwrap();
         let loaded = DeviceSecrets::decode(&store.load().unwrap().unwrap()).unwrap();

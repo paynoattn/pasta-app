@@ -80,6 +80,21 @@
   text-align: center;
 }
 
+.shortcut--button {
+  color: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.shortcut--button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.shortcut--button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
 .shortcut--recording {
   border-color: var(--accent);
   box-shadow: var(--focus);

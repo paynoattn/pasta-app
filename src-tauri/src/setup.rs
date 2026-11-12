@@ -36,7 +36,8 @@ impl SettingsLink {
             (Self::Keyboard, "macos") => "x-apple.systempreferences:com.apple.Keyboard-Settings.extension",
             (Self::Clipboard, "windows") => "ms-settings:clipboard",
             (Self::Firewall, "windows") => "windowsdefender://network",
-            (Self::TailscaleApp, "macos") => "/Applications/Tailscale.app",
+            #[cfg(target_os = "macos")]
+            (Self::TailscaleApp, "macos") => TAILSCALE_APP,
             (Self::TailscaleDownload, _) => "https://tailscale.com/download",
             _ => return None,
         };
@@ -68,18 +69,20 @@ impl Runtime {
     pub fn setup_view(&self) -> SetupView {
         let config = self.config.get();
         let status = self.net_status();
+        let cli_only = tailscale_cli_only();
         let tailscale = match &status.tailnet {
-            TailnetState::Starting => TailscaleView { state: "starting", detail: None, address: None },
+            TailnetState::Starting => TailscaleView { state: "starting", detail: None, address: None, cli_only },
             TailnetState::Unavailable(detail) => {
-                TailscaleView { state: "missing", detail: Some(detail.clone()), address: None }
+                TailscaleView { state: "missing", detail: Some(detail.clone()), address: None, cli_only }
             }
             TailnetState::NotRunning(detail) => {
-                TailscaleView { state: "stopped", detail: Some(detail.clone()), address: None }
+                TailscaleView { state: "stopped", detail: Some(detail.clone()), address: None, cli_only }
             }
             TailnetState::Running => TailscaleView {
                 state: "running",
                 detail: None,
                 address: status.listening.first().map(|addr| addr.ip().to_string()),
+                cli_only,
             },
         };
         let clipboard = self.clipboard_status();
@@ -98,6 +101,23 @@ impl Runtime {
             setup_done: config.setup_done,
         }
     }
+}
+
+/// Where the App Store and standalone builds install the app on macOS.
+#[cfg(target_os = "macos")]
+const TAILSCALE_APP: &str = "/Applications/Tailscale.app";
+
+/// macOS: the `tailscale` CLI is there but Tailscale.app isn't (Homebrew's
+/// `tailscale` formula, or a source build), so "Open Tailscale" can't work.
+#[cfg(target_os = "macos")]
+fn tailscale_cli_only() -> bool {
+    !std::path::Path::new(TAILSCALE_APP).exists() && pasta_net::tailscale::Tailscale::locate().is_ok()
+}
+
+/// The app and CLI ship together on Windows; Linux always uses the CLI and says so.
+#[cfg(not(target_os = "macos"))]
+fn tailscale_cli_only() -> bool {
+    false
 }
 
 #[cfg(target_os = "macos")]

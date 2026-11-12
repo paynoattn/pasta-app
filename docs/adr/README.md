@@ -18,3 +18,4 @@ Short records of decisions that shape Pasta, newest last. Copy
 | [0011](0011-history-search-without-a-plaintext-index.md) | Search the Mac history by decrypting, no plaintext index | Accepted |
 | [0012](0012-remote-device-settings.md)                   | Device settings: encrypted, signed, last writer wins     | Accepted |
 | [0013](0013-windows-ipc-types-and-the-mac-panel.md)      | Windows, generated IPC types, native panel on macOS      | Accepted |
+| [0014](0014-app-identifier.md)                           | App identifier `com.kingdomworks.pasta`                  | Accepted |

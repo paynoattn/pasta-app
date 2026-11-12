@@ -345,6 +345,9 @@ pub struct TailscaleView {
     pub detail: Option<String>,
     /// This device's tailnet address.
     pub address: Option<String>,
+    /// macOS: only the `tailscale` CLI is installed (e.g. Homebrew's formula),
+    /// no Tailscale.app, so the fix is a Terminal command rather than the app.
+    pub cli_only: bool,
 }
 
 /// Everything the setup flow checks (#43, #44, #45).

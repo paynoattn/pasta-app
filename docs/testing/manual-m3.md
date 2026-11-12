@@ -20,13 +20,17 @@ throwaway text.
 - [ ] Set the PC to **Receive** from the Mac: the PC's Settings shows Receive within a
       few seconds; copies on the PC no longer reach the Mac; the Mac's row for the PC
       says Receive.
-- [ ] Quit Pasta on the PC, change its expiry on the Mac: the row says "changes reach it
-      when it reconnects". Start the PC: the change arrives, and the note goes away.
+- [ ] Quit Pasta on the PC, then on the Mac change the PC's expiry in Settings › Devices (the
+      "Expire: …" menu on the PC's row): the row says "changes reach it when it reconnects".
+      Start the PC: the change arrives, and the note goes away.
 - [ ] Change the same device from both machines at nearly the same time: both end up
       showing the same value.
 - [ ] Pause for 1 hour (tray or Settings): nothing goes out or comes in; the tray says
-      paused; Resume, or wait (set the clock forward), and syncing resumes by itself.
-- [ ] Rename this device; remove another (it stops receiving at once).
+      paused; Resume, or wait (set the clock forward), and syncing resumes by itself. Nothing
+      is caught up: what was copied during the pause is never sent (v1 is live-only, ADR 0003).
+- [ ] Rename this device: typing keeps focus, the row shows the new name at once, and the
+      other device shows it after Pasta restarts here. Remove another (it stops receiving at
+      once).
 
 ## Expiry (#33, #34, #35)
 
@@ -57,7 +61,7 @@ throwaway text.
       scripts shows text only (no network requests in the console).
 - [ ] RTF-only items (TextEdit) show formatted.
 - [ ] Without Accessibility: ↩ copies and the hint says to allow Accessibility.
-- [ ] `strings ~/Library/Application\ Support/com.cpawlukiewicz.pasta-app/pasta.db`
+- [ ] `strings ~/Library/Application\ Support/com.kingdomworks.pasta/pasta.db`
       shows no copied text.
 - [ ] Retention: lower "Keep up to" to 100: older items go.
 
@@ -92,7 +96,10 @@ throwaway text.
 ## Startup, updates, shortcuts (#47, #48)
 
 - [ ] Open at login on/off survives a log-out (LaunchAgent / Run key).
+- [ ] Open at login turned on from a dev build is refused; an installed build started once
+      re-points an existing login entry at itself (no "localhost refused", no console at login).
 - [ ] A build without `PASTA_UPDATER_PUBKEY` says updates aren't set up.
-- [ ] Record a new panel shortcut; ⌘Space is refused; ⇧⌘V shows the Paste and Match
+- [ ] Click the shortcut (Settings › Shortcuts, and setup on macOS) and press a new one;
+      Esc cancels; ⌘Space is refused; ⇧⌘V shows the Paste and Match
       Style note; Reset goes back to ⇧⌘V. The old shortcut stops working.
 - [ ] Windows/KDE: the Shortcuts page shows the placeholder.

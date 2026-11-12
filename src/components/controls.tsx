@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import "./controls.css";
 import "./shared.css";
 
@@ -234,15 +234,23 @@ export function Dialog({
 }) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
+  // Callers pass a new `onClose` every render; keyed on it, the effect below ran
+  // again on each keystroke and pulled focus out of the dialog's input.
+  const onCloseRef = useRef(onClose);
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose;
+  });
   useEffect(() => {
     if (!open) return;
-    ref.current?.focus();
+    // The first field, so typing works at once; otherwise the dialog itself.
+    const field = ref.current?.querySelector<HTMLElement>("input, textarea, select");
+    (field ?? ref.current)?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
     <div className="dialog__backdrop" onMouseDown={onClose}>

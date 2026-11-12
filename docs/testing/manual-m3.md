@@ -26,7 +26,9 @@ throwaway text.
       showing the same value.
 - [ ] Pause for 1 hour (tray or Settings): nothing goes out or comes in; the tray says
       paused; Resume, or wait (set the clock forward), and syncing resumes by itself.
-- [ ] Rename this device; remove another (it stops receiving at once).
+- [ ] Rename this device: typing keeps focus, the row shows the new name at once, and the
+      other device shows it after Pasta restarts here. Remove another (it stops receiving at
+      once).
 
 ## Expiry (#33, #34, #35)
 

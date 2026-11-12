@@ -42,6 +42,7 @@ const approveDevice = vi.mocked(chainIpc.approveDevice);
 const getSettings = vi.mocked(commands.getSettings);
 const listPeers = vi.mocked(commands.listPeers);
 const setupStatus = vi.mocked(commands.setupStatus);
+const setDeviceName = vi.mocked(commands.setDeviceName);
 const setDeviceSettings = vi.mocked(commands.setDeviceSettings);
 const setIcloudBridge = vi.mocked(commands.setIcloudBridge);
 
@@ -94,6 +95,7 @@ beforeEach(async () => {
   getSettings.mockReset();
   listPeers.mockReset();
   setupStatus.mockReset();
+  setDeviceName.mockReset();
   setDeviceSettings.mockReset();
   setIcloudBridge.mockReset();
   getChain.mockResolvedValue({
@@ -210,5 +212,62 @@ describe("DevicesPage", () => {
         "1122334455667788",
       ),
     );
+  });
+
+  it("shows this device's own name once renamed, falling back to the chain member's", async () => {
+    getSettings.mockResolvedValue({ ...settingsView, deviceName: "Kitchen Mac" });
+    await rendered();
+
+    // The row shows the renamed name, not the chain record's "macbook-pro"…
+    expect(screen.getByText("Kitchen Mac")).toBeInstanceOf(HTMLElement);
+    expect(screen.queryByText("macbook-pro")).toBeNull();
+    // …and the controls follow the shown name.
+    expect(screen.getByRole("radiogroup", { name: "Mode of Kitchen Mac" })).toBeInstanceOf(
+      HTMLElement,
+    );
+
+    // Without a rename, the member's joined name shows. In the app the page
+    // reloads on a settings event; here, remounting reads the new mock.
+    getSettings.mockResolvedValue({ ...settingsView, deviceName: null });
+    cleanup();
+    await rendered();
+    expect(screen.getByText("macbook-pro")).toBeInstanceOf(HTMLElement);
+    expect(screen.queryByText("Kitchen Mac")).toBeNull();
+  });
+
+  it("shows another device's announced name when it differs from the chain record", async () => {
+    listPeers.mockResolvedValue([{ ...peerView, name: "Work desktop" }]);
+    await rendered();
+
+    expect(screen.getByText("Work desktop")).toBeInstanceOf(HTMLElement);
+    expect(screen.queryByText("win-workstation")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Expiry on Work desktop" })).toBeInstanceOf(
+      HTMLElement,
+    );
+  });
+
+  it("renames this device: prefills the shown name, keeps focus while typing, saves trimmed", async () => {
+    getSettings.mockResolvedValue({ ...settingsView, deviceName: "Kitchen Mac" });
+    setDeviceName.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    await rendered();
+
+    await user.click(screen.getByRole("button", { name: "More for Kitchen Mac" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename…" }));
+
+    // The input starts with the shown name and focused.
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    expect(input.value).toBe("Kitchen Mac");
+    expect(document.activeElement).toBe(input);
+
+    await user.clear(input);
+    await user.type(input, "  Studio Mac  ");
+    // Typing re-renders the row (a fresh onClose each keystroke); focus stays.
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("  Studio Mac  ");
+
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(setDeviceName).toHaveBeenCalledExactlyOnceWith("Studio Mac"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });

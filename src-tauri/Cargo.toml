@@ -52,6 +52,11 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSPanel", "NSWindow", "NSResponder", "NSGraphics"] }
 
+# Repairs the Open at login entry before the single-instance plugin can exit (#47).
+# The same crate and version tauri-plugin-autostart writes the entry with.
+[target.'cfg(windows)'.dependencies]
+auto-launch = "0.6"
+
 [dev-dependencies]
 rusqlite.workspace = true
 tempfile.workspace = true

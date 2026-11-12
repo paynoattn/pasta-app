@@ -42,6 +42,7 @@ const approveDevice = vi.mocked(chainIpc.approveDevice);
 const getSettings = vi.mocked(commands.getSettings);
 const listPeers = vi.mocked(commands.listPeers);
 const setupStatus = vi.mocked(commands.setupStatus);
+const setDeviceName = vi.mocked(commands.setDeviceName);
 const setDeviceSettings = vi.mocked(commands.setDeviceSettings);
 const setIcloudBridge = vi.mocked(commands.setIcloudBridge);
 
@@ -94,6 +95,7 @@ beforeEach(async () => {
   getSettings.mockReset();
   listPeers.mockReset();
   setupStatus.mockReset();
+  setDeviceName.mockReset();
   setDeviceSettings.mockReset();
   setIcloudBridge.mockReset();
   getChain.mockResolvedValue({
@@ -210,5 +212,96 @@ describe("DevicesPage", () => {
         "1122334455667788",
       ),
     );
+  });
+
+  it("shows this device's own name once renamed, falling back to the chain member's", async () => {
+    getSettings.mockResolvedValue({ ...settingsView, deviceName: "Kitchen Mac" });
+    await rendered();
+
+    // The row shows the renamed name, not the chain record's "macbook-pro"…
+    expect(screen.getByText("Kitchen Mac")).toBeInstanceOf(HTMLElement);
+    expect(screen.queryByText("macbook-pro")).toBeNull();
+    // …and the controls follow the shown name.
+    expect(screen.getByRole("radiogroup", { name: "Mode of Kitchen Mac" })).toBeInstanceOf(
+      HTMLElement,
+    );
+
+    // Without a rename, the member's joined name shows. In the app the page
+    // reloads on a settings event; here, remounting reads the new mock.
+    getSettings.mockResolvedValue({ ...settingsView, deviceName: null });
+    cleanup();
+    await rendered();
+    expect(screen.getByText("macbook-pro")).toBeInstanceOf(HTMLElement);
+    expect(screen.queryByText("Kitchen Mac")).toBeNull();
+  });
+
+  it("shows another device's announced name when it differs from the chain record", async () => {
+    listPeers.mockResolvedValue([{ ...peerView, name: "Work desktop" }]);
+    await rendered();
+
+    expect(screen.getByText("Work desktop")).toBeInstanceOf(HTMLElement);
+    expect(screen.queryByText("win-workstation")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Expiry on Work desktop" })).toBeInstanceOf(
+      HTMLElement,
+    );
+  });
+
+  it("renames this device: prefills the shown name, keeps focus while typing, saves trimmed", async () => {
+    getSettings.mockResolvedValue({ ...settingsView, deviceName: "Kitchen Mac" });
+    setDeviceName.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    await rendered();
+
+    await user.click(screen.getByRole("button", { name: "More for Kitchen Mac" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename…" }));
+
+    // The input starts with the shown name and focused.
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    expect(input.value).toBe("Kitchen Mac");
+    expect(document.activeElement).toBe(input);
+
+    await user.clear(input);
+    await user.type(input, "  Studio Mac  ");
+    // Typing re-renders the row (a fresh onClose each keystroke); focus stays.
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("  Studio Mac  ");
+
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(setDeviceName).toHaveBeenCalledExactlyOnceWith("Studio Mac"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("expiry options read 'Expire: …' and choosing one saves this device's mode and ttl", async () => {
+    setDeviceSettings.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    await rendered();
+
+    const select = screen.getByRole("combobox", {
+      name: "Expiry on macbook-pro",
+    }) as HTMLSelectElement;
+    const options = within(screen.getByRole("combobox", { name: "Expiry on macbook-pro" }))
+      .getAllByRole("option")
+      .map((option) => (option as HTMLOptionElement).textContent);
+    // ttlChoices [3600, null] → "1 hour", "Never", prefixed and lowercased.
+    expect(options).toEqual(["Expire: 1 hour", "Expire: never"]);
+
+    // This device's mode is "both"; changing only its expiry keeps that mode.
+    await user.selectOptions(select, "3600");
+
+    await waitFor(() =>
+      expect(setDeviceSettings).toHaveBeenCalledExactlyOnceWith(THIS_DEVICE.deviceId, "both", 3600),
+    );
+  });
+
+  it("says a peer with pending settings gets them when it reconnects", async () => {
+    listPeers.mockResolvedValue([
+      {
+        ...peerView,
+        pendingSettings: { mode: "send", effectiveMode: "send", ttlSecs: 3600, pausedUntil: null },
+      },
+    ]);
+    await rendered();
+
+    expect(screen.getByText(/changes reach it when it reconnects/)).toBeInstanceOf(HTMLElement);
   });
 });

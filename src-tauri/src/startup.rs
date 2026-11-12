@@ -59,7 +59,79 @@ pub fn open_at_login(app: &AppHandle) -> bool {
     app.autolaunch().is_enabled().unwrap_or(false)
 }
 
+/// Whether this build may own the Open at login entry. A debug build runs from
+/// `target/debug` and loads the dev server, so a login entry pointing at it opens
+/// windows that can't reach `localhost` (and, on Windows, a console) once the dev
+/// server is gone.
+const OWNS_LOGIN_ENTRY: bool = !cfg!(debug_assertions);
+
+/// Turning Open at login on is refused in builds that may not own the entry.
+fn check_can_change(owns_entry: bool, on: bool) -> Result<(), String> {
+    if on && !owns_entry {
+        return Err("Open at login only works in an installed build; a development build needs its dev server.".into());
+    }
+    Ok(())
+}
+
+/// The entry is found by the app's name alone and keeps the path of whichever copy
+/// of Pasta turned it on, so a release build re-points an enabled entry at itself.
+#[cfg(any(windows, test))]
+fn should_repoint(owns_entry: bool, enabled: bool) -> bool {
+    owns_entry && enabled
+}
+
+/// What [`repoint_login_entry`] did, logged by [`log_login_repair`] once logging runs.
+#[cfg(windows)]
+static LOGIN_REPAIR: Mutex<Option<Result<(), String>>> = Mutex::new(None);
+
+/// Windows: if Open at login is on, point its Run entry at this copy of Pasta, e.g.
+/// after a development build turned it on. Called before the single-instance plugin:
+/// opening the installed app while login started a stale copy exits there, so a repair
+/// in `setup` would never run. Written the way tauri-plugin-autostart writes it (its
+/// app name, this exe, no arguments), in the per-user Run key. Not on macOS or Linux, where `enable()` would
+/// rewrite an entry the user turned off outside Pasta (an XDG `Hidden=true` file).
+#[cfg(windows)]
+pub fn repoint_login_entry(app_name: &str) {
+    if !OWNS_LOGIN_ENTRY {
+        return;
+    }
+    let repair = || -> Result<bool, String> {
+        let exe = std::env::current_exe().map_err(|err| err.to_string())?;
+        let manager = auto_launch::AutoLaunchBuilder::new()
+            .set_app_name(app_name)
+            .set_app_path(&exe.display().to_string())
+            // The default tries HKLM first, so an elevated launch would add a
+            // machine-wide entry and leave the stale per-user one in place.
+            .set_windows_enable_mode(auto_launch::WindowsEnableMode::CurrentUser)
+            .build()
+            .map_err(|err| err.to_string())?;
+        let enabled = manager.is_enabled().map_err(|err| err.to_string())?;
+        if !should_repoint(OWNS_LOGIN_ENTRY, enabled) {
+            return Ok(false);
+        }
+        manager.enable().map_err(|err| err.to_string())?;
+        Ok(true)
+    };
+    let outcome = match repair() {
+        Ok(false) => return,
+        Ok(true) => Ok(()),
+        Err(err) => Err(err),
+    };
+    *LOGIN_REPAIR.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(outcome);
+}
+
+/// Logs what [`repoint_login_entry`] did, if anything.
+pub fn log_login_repair() {
+    #[cfg(windows)]
+    match LOGIN_REPAIR.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
+        Some(Ok(())) => tracing::info!("pointed Open at login at this copy of Pasta"),
+        Some(Err(err)) => tracing::warn!(error = %err, "couldn't point Open at login at this copy of Pasta"),
+        None => {}
+    }
+}
+
 pub fn set_open_at_login(app: &AppHandle, on: bool) -> Result<(), String> {
+    check_can_change(OWNS_LOGIN_ENTRY, on)?;
     let manager = app.autolaunch();
     let result = if on { manager.enable() } else { manager.disable() };
     result.map_err(|err| format!("couldn't change Open at login: {err}"))?;
@@ -141,4 +213,31 @@ pub fn spawn_checks(app: AppHandle, prefs: impl Fn() -> (bool, u32) + Send + 'st
             tokio::time::sleep(Duration::from_secs(u64::from(hours.clamp(1, 24 * 7)) * 3600)).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allows_every_change_in_a_build_that_owns_the_entry() {
+        assert_eq!(check_can_change(true, true), Ok(()));
+        assert_eq!(check_can_change(true, false), Ok(()));
+    }
+
+    #[test]
+    fn refuses_only_turning_on_in_a_build_that_does_not_own_the_entry() {
+        let err = check_can_change(false, true).unwrap_err();
+        assert!(err.contains("only works in an installed build"), "unexpected message: {err}");
+        // Turning off is allowed anywhere: the entry may exist from an older install.
+        assert_eq!(check_can_change(false, false), Ok(()));
+    }
+
+    #[test]
+    fn repoints_only_an_enabled_entry_in_a_build_that_owns_it() {
+        assert!(should_repoint(true, true));
+        assert!(!should_repoint(true, false));
+        assert!(!should_repoint(false, true));
+        assert!(!should_repoint(false, false));
+    }
 }

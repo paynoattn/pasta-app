@@ -120,6 +120,7 @@ export function DevicesPage({
             member={member}
             peer={peerById.get(member.deviceId)}
             thisDevice={member.thisDevice ? local.thisDevice : null}
+            thisName={member.thisDevice ? local.deviceName : null}
             thisAddress={member.thisDevice ? (setup.data?.tailscale.address ?? null) : null}
             ttlChoices={local.ttlChoices}
           />
@@ -187,12 +188,15 @@ function DeviceRow({
   member,
   peer,
   thisDevice,
+  thisName,
   thisAddress,
   ttlChoices,
 }: {
   member: ChainMember;
   peer: Peer | undefined;
   thisDevice: DeviceSettingsView | null;
+  /** The name set in Rename, for this device. */
+  thisName: string | null;
   thisAddress: string | null;
   ttlChoices: (number | null)[];
 }) {
@@ -200,7 +204,11 @@ function DeviceRow({
   const [menu, setMenu] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const [name, setName] = useState(member.name);
+  const [name, setName] = useState("");
+
+  // The chain record keeps the name a device joined with; show the current one:
+  // this device's own setting, or what another device announced when it connected.
+  const shownName = member.thisDevice ? (thisName ?? member.name) : (peer?.name ?? member.name);
 
   const pending = peer?.pendingSettings ?? null;
   const current = thisDevice ?? pending ?? peer?.settings ?? null;
@@ -216,7 +224,7 @@ function DeviceRow({
         label={
           <>
             <StatusDot tone={connected ? "ok" : "offline"} />
-            <span className="device__name">{member.name}</span>
+            <span className="device__name">{shownName}</span>
             {member.thisDevice && <Badge>This device</Badge>}
             {current?.effectiveMode === "paused" && current.mode !== "paused" && (
               <Badge tone="warning">Paused</Badge>
@@ -235,7 +243,7 @@ function DeviceRow({
         }
       >
         <Segmented
-          label={`Mode of ${member.name}`}
+          label={`Mode of ${shownName}`}
           options={MODES}
           value={current?.mode ?? null}
           disabled={action.busy}
@@ -243,15 +251,19 @@ function DeviceRow({
           onChange={(mode) => change(mode, current?.ttlSecs ?? null)}
         />
         <Select
-          label={`Expiry on ${member.name}`}
+          label={`Expiry on ${shownName}`}
           value={ttlValue(current?.ttlSecs ?? null)}
-          options={ttlOptions(ttlChoices)}
+          // Shown bare ("Never", "1 hour") next to the mode buttons, it didn't read as expiry.
+          options={ttlOptions(ttlChoices).map((option) => ({
+            ...option,
+            label: `Expire: ${option.label.toLowerCase()}`,
+          }))}
           disabled={action.busy}
           onChange={(value) => change(current?.mode ?? "both", parseTtl(value))}
         />
         <div className="menu">
           <Button variant="plain" onClick={() => setMenu(!menu)} title="More">
-            <span aria-label={`More for ${member.name}`}>⋯</span>
+            <span aria-label={`More for ${shownName}`}>⋯</span>
           </Button>
           {menu && (
             <ul className="menu__list" role="menu" onMouseLeave={() => setMenu(false)}>
@@ -262,6 +274,7 @@ function DeviceRow({
                     role="menuitem"
                     onClick={() => {
                       setMenu(false);
+                      setName(shownName);
                       setRenaming(true);
                     }}
                   >
@@ -315,13 +328,14 @@ function DeviceRow({
           <input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} />
         </label>
         <p className="muted">
-          Leave it empty to use the Tailscale name. Other devices see it after Pasta restarts.
+          Leave it empty to use the Tailscale name. Your other devices see the new name after Pasta
+          restarts on this device.
         </p>
       </Dialog>
 
       <Dialog
         open={removing}
-        title={`Remove ${member.name}?`}
+        title={`Remove ${shownName}?`}
         onClose={() => setRemoving(false)}
         footer={
           <>

@@ -89,6 +89,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let log_dir = app.path().app_log_dir()?;
     let log_guard = logging::init(&log_dir);
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "Pasta starting");
+    startup::log_login_repair();
     let hardening = pasta_crypto::hardening::harden_process();
     tracing::info!(applied = ?hardening.applied, failed = ?hardening.failed, "process hardening");
 
@@ -183,6 +184,9 @@ fn not_syncing(handle: &AppHandle, err: &str) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut context = tauri::generate_context!();
+    // Before the single-instance plugin, which ends a second launch (#47).
+    #[cfg(windows)]
+    startup::repoint_login_entry(&context.package_info().name);
     let mut builder = tauri::Builder::default()
         // Must be the first plugin: a second launch exits before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

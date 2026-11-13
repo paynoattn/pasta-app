@@ -9,7 +9,7 @@
 | Tauri prerequisites    | <https://tauri.app/start/prerequisites/>                                                                                   |
 | Windows                | Visual Studio Build Tools with **Desktop development with C++**, and WebView2 (preinstalled on Windows 11)                 |
 | macOS                  | Xcode Command Line Tools. **The macOS build and the Mac spikes need a real Mac.**                                          |
-| Linux (CachyOS / Arch) | `webkit2gtk-4.1 libappindicator-gtk3 librsvg patchelf xdotool base-devel`                                                  |
+| Linux (CachyOS / Arch) | `webkit2gtk-4.1 librsvg base-devel`; the .deb / AppImage bundles also need `libayatana-appindicator patchelf`              |
 | Tailscale              | Installed and logged in on every test machine, all on the same tailnet                                                     |
 
 Install the Windows build tools from a terminal (approve the UAC prompt):
@@ -42,7 +42,12 @@ These print diagnostics only, never clipboard contents:
 cargo run -p pasta-net --example tailscale_probe                      # any OS (#4)
 cargo run -p pasta-clipboard --example win_history_probe              # Windows (#5)
 cargo run -p pasta-clipboard --example mac_pasteboard_probe -- watch  # macOS (#6)
+cargo run -p pasta-clipboard --example klipper_probe                  # KDE Plasma, Wayland (#49)
 ```
+
+`klipper_probe` writes two markers (one recorded by Klipper, one with the password hint),
+reports whether Klipper kept them, then watches copies for 10 s. Its recorded marker
+stays in Klipper's history; clear it from Klipper afterwards.
 
 `win_history_probe` writes test markers to the clipboard, deletes only those from Win+V
 and puts your previous clipboard item back.
@@ -85,19 +90,19 @@ cargo run -p pasta-clipboard --example adapter_probe -- write
 
 ## Running the MVP
 
-`pnpm tauri dev` runs the app. It has no window: look for the tray icon (Windows) or the
-menu-bar item (macOS). A debug build without the dev server also works once `pnpm build`
+`pnpm tauri dev` runs the app. It has no window: look for the tray icon (Windows, KDE) or
+the menu-bar item (macOS). A debug build without the dev server also works once `pnpm build`
 has produced `dist/`:
 
 ```sh
 cargo run -p pasta-app --features tauri/custom-protocol
 ```
 
-| What                       | Windows                                       | macOS                                                   |
-| -------------------------- | --------------------------------------------- | ------------------------------------------------------- |
-| Encrypted store `pasta.db` | `%APPDATA%\com.kingdomworks.pasta\`           | `~/Library/Application Support/com.kingdomworks.pasta/` |
-| Logs (daily, 7 kept)       | `%LOCALAPPDATA%\com.kingdomworks.pasta\logs\` | `~/Library/Logs/com.kingdomworks.pasta/`                |
-| Keys (one entry)           | Credential Manager › Windows Credentials      | Keychain Access › login                                 |
+| What                       | Windows                                       | macOS                                                   | KDE Plasma                                    |
+| -------------------------- | --------------------------------------------- | ------------------------------------------------------- | --------------------------------------------- |
+| Encrypted store `pasta.db` | `%APPDATA%\com.kingdomworks.pasta\`           | `~/Library/Application Support/com.kingdomworks.pasta/` | `~/.local/share/com.kingdomworks.pasta/`      |
+| Logs (daily, 7 kept)       | `%LOCALAPPDATA%\com.kingdomworks.pasta\logs\` | `~/Library/Logs/com.kingdomworks.pasta/`                | `~/.local/share/com.kingdomworks.pasta/logs/` |
+| Keys (one entry)           | Credential Manager › Windows Credentials      | Keychain Access › login                                 | KWallet (Secret Service), KWalletManager      |
 
 - Since M2, settings, known peers and the chain's member list live in `pasta.db`, every
   value encrypted with a key from the OS keychain (service `com.kingdomworks.pasta`,
@@ -108,8 +113,9 @@ cargo run -p pasta-app --features tauri/custom-protocol
 - To start over on a machine, quit Pasta, delete `pasta.db` and the keychain entry.
 - Tray → **Copy diagnostics** puts a redacted report on the clipboard (not synced): no
   device names, tailnet addresses, node ids or chain id, so it can go in a public issue.
-- A left click on the tray icon opens the popover (macOS) or flyout (Windows); a right
-  click opens a small native menu. The setup flow opens on the first start without a
+- A left click on the tray icon opens the popover (macOS) or flyout (Windows, KDE); a
+  right click opens a small native menu. On KDE the tray is a StatusNotifierItem and a
+  KWin script, loaded while Pasta runs, places the flyout above the tray (ADR 0015). The setup flow opens on the first start without a
   chain and again from Settings › About. Settings › Devices creates or joins a chain,
   adds devices (words + QR) and approves them. Nothing syncs until the device is an
   approved member of a chain.
@@ -130,6 +136,19 @@ cargo run -p pasta-app --features tauri/custom-protocol
 - A dev build can't turn on Open at login: the login entry would start `target/debug`,
   which needs the dev server. Test it with an installed build; on Windows an installed
   build also re-points an existing entry at itself when it starts (#47).
+
+### KDE Plasma: build and install a package
+
+`tauri build` can't make the .deb / AppImage without libayatana-appindicator (CI builds
+them). On Arch / CachyOS, package this checkout instead (`-d` when Rust and pnpm come from
+rustup / corepack rather than pacman):
+
+```sh
+cd packaging/arch && makepkg -f -d
+sudo pacman -U pasta-*.pkg.tar.zst
+```
+
+The AUR package is `packaging/aur/pasta-bin`, which repackages the release .deb (#58).
 
 ### macOS: stop the keychain prompt on every rebuild
 

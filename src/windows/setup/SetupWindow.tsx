@@ -189,14 +189,26 @@ function TailscaleStep({ view }: { view: SetupView }) {
           ) : platform === "macos" ? (
             "Open Tailscale from the menu bar and connect."
           ) : (
-            "Run `tailscale up`, and `sudo tailscale set --operator=$USER` once so Pasta can ask it about your devices."
+            <>
+              In a terminal, run <code>sudo tailscale up</code> and sign in.
+            </>
           )}
           {tailscale.detail && <span className="muted"> ({tailscale.detail})</span>}
+        </InfoBar>
+      )}
+      {platform === "linux" && tailscale.state !== "running" && deniedAccess(tailscale.detail) && (
+        <InfoBar tone="warning" title="Tailscale won't answer Pasta.">
+          Run <code>sudo tailscale set --operator=$USER</code> once, then come back here.
         </InfoBar>
       )}
       <p className="muted">Use the same Tailscale account on every device you want to sync.</p>
     </>
   );
+}
+
+/** Linux: tailscaled refused the CLI, which `--operator` fixes. */
+function deniedAccess(detail: string | null): boolean {
+  return /denied|permission|operator/i.test(detail ?? "");
 }
 
 function ChainStep({ view, onDone }: { view: SetupView; onDone: () => void }) {
@@ -321,6 +333,37 @@ function PermissionsStep({ view }: { view: SetupView }) {
           />
         </Section>
       )}
+      {view.os === "linux" && (
+        <Section title="KDE Plasma">
+          {view.clipboardUnsupported && (
+            <div className="pad">
+              <InfoBar tone="error" title="Pasta can't sync on this desktop.">
+                {view.clipboardUnsupported}.
+              </InfoBar>
+            </div>
+          )}
+          {view.clipboardHistory !== null && (
+            <Row
+              label="Klipper"
+              hint={
+                view.clipboardHistory === false
+                  ? "Not running: items from your other devices only become the current clipboard. Add the Clipboard widget to the system tray to get its history back."
+                  : "Running: items from your other devices show in Klipper (Meta + V)."
+              }
+            >
+              {view.clipboardHistory === false ? (
+                <span className="muted">Not running</span>
+              ) : (
+                <span className="granted">✓ Running</span>
+              )}
+            </Row>
+          )}
+          <Row
+            label="Keep Pasta in the system tray"
+            hint="If its icon is under the arrow (^), right-click the arrow › Configure System Tray… › Entries, and set Pasta to Always shown."
+          />
+        </Section>
+      )}
       <Section title="Startup">
         <Row label="Open at login" hint="Pasta starts quietly in the background when you sign in.">
           <Toggle
@@ -398,6 +441,9 @@ function DoneStep({ view }: { view: SetupView }) {
           </li>
         )}
         {view.os === "windows" && <li>Press Win + V to see items from your other devices.</li>}
+        {view.os === "linux" && view.clipboardHistory === true && (
+          <li>Press Meta + V to see items from your other devices in Klipper.</li>
+        )}
       </ul>
       <p className="muted">
         Pasta lives in the {platform === "macos" ? "menu bar" : "system tray"}. Settings are there

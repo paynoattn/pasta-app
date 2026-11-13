@@ -114,6 +114,7 @@ beforeEach(async () => {
     accessibility: null,
     clipboardHistory: null,
     cloudSync: null,
+    clipboardUnsupported: null,
     openAtLogin: true,
     autoUpdate: false,
     icloudBridge: false,

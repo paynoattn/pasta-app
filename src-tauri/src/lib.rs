@@ -4,6 +4,8 @@ mod commands;
 mod config;
 mod diagnostics;
 mod expiry;
+#[cfg(target_os = "linux")]
+mod kwin;
 mod logging;
 #[cfg(target_os = "macos")]
 mod macos_panel;
@@ -75,6 +77,8 @@ pub(crate) fn quit(app: &AppHandle) {
         if let Some(runtime) = runtime {
             runtime.shutdown().await;
         }
+        #[cfg(target_os = "linux")]
+        kwin::uninstall().await;
         tracing::info!("Pasta stopped");
         app.exit(0);
     });
@@ -103,6 +107,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     });
     tray::create(app.handle())?;
     ui::create_windows(app.handle())?;
+    #[cfg(target_os = "linux")]
+    kwin::install();
 
     let handle = app.handle().clone();
     tauri::async_runtime::spawn(start(handle, data_dir, log_dir, retry));

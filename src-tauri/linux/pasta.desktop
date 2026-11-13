@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name={{name}}
+GenericName=Clipboard Sync
+Comment={{comment}}
+Exec={{exec}}
+Icon={{icon}}
+StartupWMClass={{exec}}
+Categories={{categories}}
+Keywords=clipboard;sync;copy;paste;tailscale;klipper;
+Terminal=false
+StartupNotify=false

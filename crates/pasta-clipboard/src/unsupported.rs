@@ -1,15 +1,24 @@
-//! Placeholder for platforms without an adapter yet (KDE Plasma arrives in M4).
+//! Desktops Pasta can't sync on: Linux without Wayland `ext-data-control`
+//! (X11 sessions, GNOME; ADR 0015) and other OSes.
 
 use pasta_core::clip::Flavors;
 use pasta_core::clipboard::{ClipboardAdapter, ClipboardError, ClipboardStatus, CopySink, Watch, WriteReceipt};
 use uuid::Uuid;
 
 /// Never reports copies; refuses writes.
-pub struct Unsupported;
+pub struct Unsupported {
+    reason: String,
+}
+
+impl Unsupported {
+    pub fn new(reason: String) -> Self {
+        Self { reason }
+    }
+}
 
 impl ClipboardAdapter for Unsupported {
     fn watch(&self, _sink: CopySink) -> Result<Watch, ClipboardError> {
-        tracing::warn!("clipboard sync is not supported on this platform yet");
+        tracing::warn!(reason = %self.reason, "clipboard sync is not supported here");
         Ok(Watch::new(|| {}))
     }
 
@@ -22,6 +31,6 @@ impl ClipboardAdapter for Unsupported {
     }
 
     fn status(&self) -> ClipboardStatus {
-        ClipboardStatus { unsupported: Some("KDE Plasma support arrives in M4".into()), ..ClipboardStatus::default() }
+        ClipboardStatus { unsupported: Some(self.reason.clone()), ..ClipboardStatus::default() }
     }
 }

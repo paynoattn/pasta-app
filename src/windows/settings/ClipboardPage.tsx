@@ -109,13 +109,17 @@ function SyncSection({ settings }: { settings: SettingsView }) {
           </Button>
         )}
       </Row>
-      {platform === "windows" && (
+      {platform !== "macos" && (
         <Row
-          label="Add received items to Win + V"
-          hint="Off: items only become the current clipboard."
+          label={`Add received items to ${historyName}`}
+          hint={
+            platform === "linux"
+              ? "Off: items only become the current clipboard, so expiry removes them completely."
+              : "Off: items only become the current clipboard."
+          }
         >
           <Toggle
-            label="Add received items to Win + V"
+            label={`Add received items to ${historyName}`}
             checked={settings.addToHistory}
             onChange={(on) => void action.run(() => setAddToHistory(on))}
           />
@@ -123,7 +127,11 @@ function SyncSection({ settings }: { settings: SettingsView }) {
       )}
       <Row
         label="Expire received items after"
-        hint={`Items from your other devices are removed from ${historyName} and the clipboard after this.`}
+        hint={
+          platform === "linux" && settings.addToHistory
+            ? "Items from your other devices leave the clipboard after this. Klipper can't remove a single entry, so they stay in its history until you delete them there."
+            : `Items from your other devices are removed from ${historyName} and the clipboard after this.`
+        }
       >
         <Select
           label="Expire received items after"
@@ -137,7 +145,14 @@ function SyncSection({ settings }: { settings: SettingsView }) {
           }
         />
       </Row>
-      <Row label="Expire all now" hint="Removes every received item at once.">
+      <Row
+        label="Expire all now"
+        hint={
+          platform === "linux"
+            ? "Clears every received item from the clipboard at once."
+            : "Removes every received item at once."
+        }
+      >
         <Button
           disabled={action.busy}
           onClick={() =>
@@ -254,15 +269,9 @@ function HistorySection({ settings }: { settings: SettingsView }) {
 
 function PrivacySection({ settings }: { settings: SettingsView }) {
   const action = useAction();
-  const [picking, setPicking] = useState(false);
   const save = (skip: boolean, apps: ExcludedAppView[]) =>
     void action.run(() => setPrivacy(skip, apps));
-  const idLabel =
-    platform === "macos"
-      ? "Bundle id"
-      : platform === "windows"
-        ? "Program (.exe)"
-        : "Desktop file id";
+  const idLabel = platform === "macos" ? "Bundle id" : "Program (.exe)";
 
   return (
     <Section
@@ -271,11 +280,15 @@ function PrivacySection({ settings }: { settings: SettingsView }) {
     >
       <Row
         label="Skip passwords and other sensitive items"
-        hint={`Items password managers mark as concealed, and copies in ${
-          settings.builtinExcluded.length > 0
-            ? `${settings.builtinExcluded.length} known password managers`
-            : "known password managers"
-        }.`}
+        hint={
+          platform === "linux"
+            ? "Items password managers such as KeePassXC mark as secret."
+            : `Items password managers mark as concealed, and copies in ${
+                settings.builtinExcluded.length > 0
+                  ? `${settings.builtinExcluded.length} known password managers`
+                  : "known password managers"
+              }.`
+        }
       >
         <Toggle
           label="Skip passwords and other sensitive items"
@@ -283,6 +296,31 @@ function PrivacySection({ settings }: { settings: SettingsView }) {
           onChange={(on) => save(on, settings.excludedApps)}
         />
       </Row>
+      {platform === "linux" ? (
+        <Row
+          label="Excluded apps"
+          hint="Not available on Plasma: Wayland doesn't tell Pasta which app copied. Pause syncing instead while you work with something private."
+        />
+      ) : (
+        <ExcludedApps settings={settings} save={save} idLabel={idLabel} />
+      )}
+      <ErrorText error={action.error} />
+    </Section>
+  );
+}
+
+function ExcludedApps({
+  settings,
+  save,
+  idLabel,
+}: {
+  settings: SettingsView;
+  save: (skip: boolean, apps: ExcludedAppView[]) => void;
+  idLabel: string;
+}) {
+  const [picking, setPicking] = useState(false);
+  return (
+    <>
       {settings.excludedApps.map((app) => (
         <Row key={app.id} label={app.name} hint={<span className="mono">{app.id}</span>}>
           <Button
@@ -308,7 +346,6 @@ function PrivacySection({ settings }: { settings: SettingsView }) {
       >
         <Button onClick={() => setPicking(true)}>Add app…</Button>
       </Row>
-      <ErrorText error={action.error} />
       {picking && (
         <AppPicker
           idLabel={idLabel}
@@ -319,7 +356,7 @@ function PrivacySection({ settings }: { settings: SettingsView }) {
           }}
         />
       )}
-    </Section>
+    </>
   );
 }
 

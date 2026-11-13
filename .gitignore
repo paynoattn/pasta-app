@@ -26,6 +26,12 @@ dist-ssr
 # Rust
 /target/
 
+# makepkg output (packaging/)
+packaging/**/src/
+packaging/**/pkg/
+packaging/**/*.pkg.tar.*
+packaging/**/*.deb
+
 # Claude Code: personal settings and the user's git approval window
 .claude/settings.local.json
 .claude/git-approval.json

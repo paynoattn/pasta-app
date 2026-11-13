@@ -131,7 +131,7 @@ impl Runtime {
             .map_err(|err| format!("clipboard: {err}"))?;
         let clipboard_status = clipboard.status();
         if clipboard_status.history_enabled == Some(false) {
-            tracing::warn!("Windows clipboard history is off; received items won't show in Win+V");
+            tracing::warn!("the OS clipboard history is off; received items won't show in it");
         }
         let history = cfg!(target_os = "macos").then(|| HistoryStore::new(Arc::clone(&db)));
         let ledger = crate::expiry::load(&db);
@@ -326,7 +326,11 @@ impl Runtime {
         let clipboard = self.clipboard_status();
         let mut warnings = Vec::new();
         if clipboard.history_enabled == Some(false) {
-            warnings.push("Clipboard history (Win+V) is off".to_owned());
+            warnings.push(if cfg!(windows) {
+                "Clipboard history (Win+V) is off".to_owned()
+            } else {
+                "Klipper isn't running, so received items aren't in its history".to_owned()
+            });
         }
         if let Some(reason) = clipboard.unsupported {
             warnings.push(reason);

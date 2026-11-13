@@ -19,3 +19,4 @@ Short records of decisions that shape Pasta, newest last. Copy
 | [0012](0012-remote-device-settings.md)                   | Device settings: encrypted, signed, last writer wins     | Accepted |
 | [0013](0013-windows-ipc-types-and-the-mac-panel.md)      | Windows, generated IPC types, native panel on macOS      | Accepted |
 | [0014](0014-app-identifier.md)                           | App identifier `com.kingdomworks.pasta`                  | Accepted |
+| [0015](0015-kde-klipper.md)                              | KDE Plasma: Wayland data-control, Klipper keeps history  | Accepted |

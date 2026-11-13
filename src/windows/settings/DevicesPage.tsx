@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import {
   approveDevice,
   declineDevice,
@@ -202,6 +202,9 @@ function DeviceRow({
 }) {
   const action = useAction();
   const [menu, setMenu] = useState(false);
+  const menuAnchor = useRef<HTMLDivElement>(null);
+  const menuList = useRef<HTMLUListElement>(null);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>();
   const [renaming, setRenaming] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [name, setName] = useState("");
@@ -217,6 +220,28 @@ function DeviceRow({
   const latency = peer?.latencyMs;
   const change = (mode: Mode, ttlSecs: number | null) =>
     void action.run(() => setDeviceSettings(member.deviceId, mode, ttlSecs));
+
+  // The list is position: fixed so the section card and the scrolling page can't clip it.
+  useLayoutEffect(() => {
+    if (!menu || !menuAnchor.current || !menuList.current) return;
+    const box = menuAnchor.current.getBoundingClientRect();
+    const fitsBelow = box.bottom + 4 + menuList.current.offsetHeight <= window.innerHeight;
+    setMenuStyle({
+      right: window.innerWidth - box.right,
+      ...(fitsBelow ? { top: box.bottom + 4 } : { bottom: window.innerHeight - box.top + 4 }),
+    });
+  }, [menu]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [menu]);
 
   return (
     <div className="device">
@@ -261,12 +286,18 @@ function DeviceRow({
           disabled={action.busy}
           onChange={(value) => change(current?.mode ?? "both", parseTtl(value))}
         />
-        <div className="menu">
+        <div className="menu" ref={menuAnchor}>
           <Button variant="plain" onClick={() => setMenu(!menu)} title="More">
             <span aria-label={`More for ${shownName}`}>⋯</span>
           </Button>
           {menu && (
-            <ul className="menu__list" role="menu" onMouseLeave={() => setMenu(false)}>
+            <ul
+              ref={menuList}
+              className="menu__list"
+              role="menu"
+              style={menuStyle}
+              onMouseLeave={() => setMenu(false)}
+            >
               {member.thisDevice ? (
                 <li>
                   <button

@@ -1,0 +1,25 @@
+# AUR `pasta-bin` (#55): repackages the .deb from a GitHub release for CachyOS / Arch.
+# For each release: bump pkgver, run `updpkgsums`, then `makepkg --printsrcinfo >.SRCINFO`.
+
+pkgname=pasta-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Clipboard sync across your devices over Tailscale"
+arch=('x86_64')
+url="https://github.com/paynoattn/pasta-app"
+license=('unknown')
+depends=('webkit2gtk-4.1' 'gtk3' 'glib2' 'hicolor-icon-theme' 'tailscale')
+optdepends=('kwallet: keeps Pasta'"'"'s keys (any Secret Service provider works)'
+  'plasma-workspace: Klipper, where items from your other devices show up'
+  'xdg-utils: opens the log folder and links from Pasta')
+provides=('pasta')
+conflicts=('pasta')
+options=('!strip' '!debug')
+source_x86_64=("pasta-$pkgver-x86_64.deb::$url/releases/download/v$pkgver/Pasta_${pkgver}_amd64.deb")
+sha256sums_x86_64=('SKIP')
+
+package() {
+  bsdtar -xf data.tar.* -C "$pkgdir"
+  # The .deb's desktop file is named after the product; Plasma matches windows by app id.
+  mv "$pkgdir/usr/share/applications/Pasta.desktop" "$pkgdir/usr/share/applications/pasta-app.desktop"
+}

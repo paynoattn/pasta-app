@@ -169,7 +169,21 @@ pub fn toggle_tray(app: &AppHandle, anchor: Option<(f64, f64, f64, f64)>) {
     let _ = window.emit(TRAY_OPENED, ());
 }
 
+/// KDE: the tray icon was clicked at `(x, y)`. `token` is the panel's XDG
+/// activation token, without which KWin doesn't give the flyout focus.
+#[cfg(target_os = "linux")]
+pub fn toggle_tray_activated(app: &AppHandle, (x, y): (f64, f64), token: Option<&str>) {
+    use gtk::prelude::GtkWindowExt;
+    if let (Some(token), Some(window)) = (token, app.get_webview_window(TRAY))
+        && let Ok(gtk_window) = window.gtk_window()
+    {
+        gtk_window.set_startup_id(token);
+    }
+    toggle_tray(app, Some((x, y, 0.0, 0.0)));
+}
+
 /// Below the menu-bar icon on macOS; above (or beside) the taskbar icon elsewhere.
+/// Wayland doesn't let windows place themselves, so on KDE KWin decides.
 fn place_tray(app: &AppHandle, window: &WebviewWindow, (x, y, width, height): (f64, f64, f64, f64)) {
     let monitor = app.monitor_from_point(x, y).ok().flatten().or_else(|| app.primary_monitor().ok().flatten());
     let scale = monitor.as_ref().map_or(1.0, tauri::Monitor::scale_factor);

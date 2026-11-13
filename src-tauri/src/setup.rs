@@ -93,6 +93,7 @@ impl Runtime {
             accessibility: accessibility(),
             clipboard_history: clipboard.history_enabled,
             cloud_sync: clipboard.cloud_sync,
+            clipboard_unsupported: clipboard.unsupported,
             open_at_login: crate::startup::open_at_login(&self.app),
             auto_update: config.updates.automatic,
             icloud_bridge: config.icloud_bridge,

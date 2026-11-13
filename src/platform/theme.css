@@ -126,6 +126,8 @@
   --control-h: 30px;
   --shadow: none;
   --focus: 0 0 0 2px #3daee9;
+  /* Opaque: KWin doesn't blur behind other apps' windows. */
+  --popover-bg: #fcfcfc;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -137,6 +139,7 @@
     --border: #4d4d4d;
     --text: #fcfcfc;
     --text-2: #a1a9b1;
+    --popover-bg: #292c30;
   }
 }
 

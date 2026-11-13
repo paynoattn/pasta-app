@@ -10,10 +10,14 @@ export type SetupView = { os: "macos" | "windows" | "linux", tailscale: Tailscal
  */
 accessibility: boolean | null, 
 /**
- * Windows: Win+V history is on.
+ * Windows: Win+V history is on. KDE: Klipper is running.
  */
 clipboardHistory: boolean | null, 
 /**
  * Windows: "Sync across your devices" is on (may show items twice).
  */
-cloudSync: boolean | null, openAtLogin: boolean, autoUpdate: boolean, icloudBridge: boolean, panelShortcut: string | null, setupDone: boolean, };
+cloudSync: boolean | null, 
+/**
+ * Why this desktop can't sync, e.g. an X11 session on Linux.
+ */
+clipboardUnsupported: string | null, openAtLogin: boolean, autoUpdate: boolean, icloudBridge: boolean, panelShortcut: string | null, setupDone: boolean, };

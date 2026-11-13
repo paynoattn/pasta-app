@@ -1,0 +1,53 @@
+# Builds and packages the checkout this file is in (#55), for CachyOS / Arch:
+#
+#   cd packaging/arch && makepkg -f && sudo pacman -U pasta-*.pkg.tar.zst
+#
+# Add -d to makepkg when Rust and pnpm come from rustup / corepack rather than pacman.
+# The AUR package is ../aur/pasta-bin, which repackages the release .deb.
+
+pkgname=pasta
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Clipboard sync across your devices over Tailscale"
+arch=('x86_64' 'aarch64')
+url="https://github.com/paynoattn/pasta-app"
+license=('unknown')
+depends=('webkit2gtk-4.1' 'gtk3' 'glib2' 'hicolor-icon-theme' 'tailscale')
+optdepends=('kwallet: keeps Pasta'"'"'s keys (any Secret Service provider works)'
+  'plasma-workspace: Klipper, where items from your other devices show up'
+  'xdg-utils: opens the log folder and links from Pasta')
+makedepends=('cargo' 'nodejs' 'pnpm')
+provides=('pasta')
+conflicts=('pasta-bin')
+# The release profile in Cargo.toml does its own LTO and stripping.
+options=('!lto' '!debug' '!strip')
+
+_repo="$(realpath "$startdir/../..")"
+
+build() {
+  cd "$_repo"
+  pnpm install --frozen-lockfile
+  # No Tauri bundles: they're built in CI; this package installs the binary itself.
+  pnpm tauri build --no-bundle
+}
+
+package() {
+  cd "$_repo"
+  install -Dm755 target/release/pasta-app "$pkgdir/usr/bin/pasta-app"
+
+  # Named after the Wayland app id, so Plasma matches the windows to it.
+  sed -e 's/{{name}}/Pasta/' \
+    -e 's/{{comment}}/Clipboard sync across your devices over Tailscale/' \
+    -e 's/{{exec}}/pasta-app/g' \
+    -e 's/{{icon}}/pasta-app/' \
+    -e 's/{{categories}}/Utility;/' \
+    src-tauri/linux/pasta.desktop >pasta-app.desktop
+  install -Dm644 pasta-app.desktop "$pkgdir/usr/share/applications/pasta-app.desktop"
+  rm pasta-app.desktop
+
+  local icons=src-tauri/icons hicolor="$pkgdir/usr/share/icons/hicolor"
+  install -Dm644 "$icons/32x32.png" "$hicolor/32x32/apps/pasta-app.png"
+  install -Dm644 "$icons/128x128.png" "$hicolor/128x128/apps/pasta-app.png"
+  install -Dm644 "$icons/128x128@2x.png" "$hicolor/256x256/apps/pasta-app.png"
+  install -Dm644 "$icons/icon.png" "$hicolor/512x512/apps/pasta-app.png"
+}

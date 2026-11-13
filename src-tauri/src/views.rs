@@ -362,10 +362,12 @@ pub struct SetupView {
     pub chain: &'static str,
     /// macOS: Pasta may paste into other apps (#39).
     pub accessibility: Option<bool>,
-    /// Windows: Win+V history is on.
+    /// Windows: Win+V history is on. KDE: Klipper is running.
     pub clipboard_history: Option<bool>,
     /// Windows: "Sync across your devices" is on (may show items twice).
     pub cloud_sync: Option<bool>,
+    /// Why this desktop can't sync, e.g. an X11 session on Linux.
+    pub clipboard_unsupported: Option<String>,
     pub open_at_login: bool,
     pub auto_update: bool,
     pub icloud_bridge: bool,

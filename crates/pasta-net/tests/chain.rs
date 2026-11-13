@@ -175,6 +175,29 @@ async fn any_member_can_approve_and_the_others_learn_by_gossip() {
     assert_eq!(b.wait_writes(2).await, ["from a", "from the new device"]);
 }
 
+/// The setup flow: the app starts without a chain, the user types the words
+/// while it runs, and one member approves it. The other member must take its
+/// items straight away, without a restart.
+#[tokio::test]
+async fn a_device_that_joins_while_running_reaches_every_member() {
+    let chain = TestChain::new();
+    let a = PeerBuilder::new("a").chain(member(&chain)).start().await;
+    let b = PeerBuilder::new("b").chain(member(&chain)).start().await;
+    let fresh = PeerBuilder::new("fresh").chain(ChainChoice::None).start().await;
+    mesh(&[&a, &b, &fresh]).await;
+    a.wait_connected(1).await;
+
+    fresh.node().network().set_chain(Some(chain.joining())).await;
+    a.wait_pending(1).await;
+    b.wait_pending(1).await;
+    a.node().network().approve(fresh.id(), &fresh.fingerprint()).await.unwrap();
+    fresh.wait_approved(true).await;
+
+    fresh.clipboard.copy("right after approval");
+    assert_eq!(a.wait_writes(1).await, ["right after approval"]);
+    assert_eq!(b.wait_writes(1).await, ["right after approval"]);
+}
+
 #[tokio::test]
 async fn approve_decline_and_remove_refuse_devices_that_are_not_there() {
     let a = PeerBuilder::new("a").chain(member(&TestChain::new())).start().await;

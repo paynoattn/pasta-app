@@ -119,12 +119,10 @@
 }
 
 .menu__list {
-  position: absolute;
-  right: 0;
-  top: 100%;
+  position: fixed;
   z-index: 5;
   list-style: none;
-  margin: 4px 0 0;
+  margin: 0;
   padding: 4px;
   background: var(--surface);
   border: 1px solid var(--border);

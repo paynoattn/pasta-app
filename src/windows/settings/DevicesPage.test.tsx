@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as chainIpc from "../../ipc/chain";
@@ -174,6 +174,77 @@ describe("DevicesPage", () => {
         null,
       ),
     );
+  });
+
+  it("the row menu opens above its button when there's no room below", async () => {
+    const user = userEvent.setup();
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(900, window.innerHeight - 30, 30, 28));
+    const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(40);
+    try {
+      await rendered();
+
+      await user.click(screen.getByLabelText("More for win-workstation"));
+      const menu = screen.getByRole("menu");
+      expect(menu.style.bottom).toBe("34px");
+      expect(menu.style.top).toBe("");
+      expect(within(menu).getByRole("menuitem", { name: "Remove from chain…" })).toBeInstanceOf(
+        HTMLElement,
+      );
+    } finally {
+      rect.mockRestore();
+      height.mockRestore();
+    }
+  });
+
+  it("the row menu opens below its button when there's room", async () => {
+    const user = userEvent.setup();
+    // Anchor at (900, 100), 30×28: 132px of free space below, well within jsdom's 768px height.
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(900, 100, 30, 28));
+    const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(40);
+    try {
+      await rendered();
+
+      await user.click(screen.getByLabelText("More for win-workstation"));
+      const menu = screen.getByRole("menu");
+      expect(menu.style.top).toBe("132px");
+      expect(menu.style.bottom).toBe("");
+      expect(menu.style.right).toBe(`${window.innerWidth - 930}px`);
+      expect(within(menu).getByRole("menuitem", { name: "Remove from chain…" })).toBeInstanceOf(
+        HTMLElement,
+      );
+    } finally {
+      rect.mockRestore();
+      height.mockRestore();
+    }
+  });
+
+  it("closes the row menu when anything scrolls", async () => {
+    const user = userEvent.setup();
+    await rendered();
+
+    await user.click(screen.getByLabelText("More for win-workstation"));
+    expect(screen.getByRole("menu")).toBeInstanceOf(HTMLElement);
+
+    // The window listener is capturing, so a scroll inside any element closes it.
+    fireEvent.scroll(document.body);
+
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  });
+
+  it("closes the row menu when the window resizes", async () => {
+    const user = userEvent.setup();
+    await rendered();
+
+    await user.click(screen.getByLabelText("More for win-workstation"));
+    expect(screen.getByRole("menu")).toBeInstanceOf(HTMLElement);
+
+    window.dispatchEvent(new Event("resize"));
+
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   });
 
   it("hides the iCloud bridge section off macOS", async () => {
